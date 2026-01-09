@@ -12,7 +12,7 @@ function App() {
 
   const fetchTasks = async () => {
     try {
-      const res = await axios.get('http://localhost:5000/tasks');
+      const res = await axios.get('https://todo-backend-api-x8hm.onrender.com/tasks');
       setTasks(res.data);
     } catch (err) {
       console.error("Error fetching tasks", err);
@@ -22,14 +22,14 @@ function App() {
   // 2. Add a task
   const addTask = async () => {
     if (!input) return;
-    await axios.post('http://localhost:5000/tasks', { title: input });
+    await axios.post('https://todo-backend-api-x8hm.onrender.com/tasks', { title: input });
     setInput("");
     fetchTasks();
   };
 
   // 3. Delete a task
   const deleteTask = async (id) => {
-    await axios.delete(`http://localhost:5000/tasks/${id}`);
+    await axios.delete('https://todo-backend-api-x8hm.onrender.com/tasks/${id}');
     fetchTasks();
   };
 
