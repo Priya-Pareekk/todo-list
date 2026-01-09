@@ -29,7 +29,8 @@ function App() {
 
   // 3. Delete a task
   const deleteTask = async (id) => {
-    await axios.delete('https://todo-backend-api-x8hm.onrender.com/tasks/${id}');
+    // Note the backticks ` ` used below around the URL
+    await axios.delete(`https://todo-backend-api-x8hm.onrender.com/tasks/${id}`);
     fetchTasks();
   };
 
