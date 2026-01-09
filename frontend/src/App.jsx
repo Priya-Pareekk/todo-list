@@ -12,7 +12,7 @@ function App() {
 
   const fetchTasks = async () => {
     try {
-      const res = await axios.get('https://todo-backend-api-x8hm.onrender.com/tasks');
+      const res = await axios.delete(https://www.google.com/search?q=https://todo-backend-api-x8hm.onrender.com/tasks/${id});
       setTasks(res.data);
     } catch (err) {
       console.error("Error fetching tasks", err);
