@@ -16,6 +16,18 @@ const isOAuthOnlyAccount = (user) => {
   return user.authProvider !== "local" && !user.password;
 };
 
+const getRequiredGoogleEnv = () => {
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const callbackUrl = process.env.GOOGLE_CALLBACK_URL;
+
+  if (!clientId || !clientSecret || !callbackUrl) {
+    throw new Error("GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and GOOGLE_CALLBACK_URL are required for Google OAuth.");
+  }
+
+  return { clientId, clientSecret, callbackUrl };
+};
+
 const issueAuthTokens = async (req, userId) => {
   const accessToken = buildAccessToken(String(userId));
   const refreshToken = buildRefreshToken(String(userId));
@@ -288,10 +300,127 @@ const logout = asyncHandler(async (req, res) => {
   });
 });
 
+// Starts Google OAuth by redirecting user to Google's consent screen.
+const googleLogin = asyncHandler(async (req, res) => {
+  const { clientId, callbackUrl } = getRequiredGoogleEnv();
+
+  const googleAuthUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+  googleAuthUrl.searchParams.set("client_id", clientId);
+  googleAuthUrl.searchParams.set("redirect_uri", callbackUrl);
+  googleAuthUrl.searchParams.set("response_type", "code");
+  googleAuthUrl.searchParams.set("scope", "openid email profile");
+  googleAuthUrl.searchParams.set("access_type", "offline");
+  googleAuthUrl.searchParams.set("prompt", "select_account");
+
+  return res.redirect(googleAuthUrl.toString());
+});
+
+// Handles Google OAuth callback and issues app JWT tokens.
+const googleCallback = asyncHandler(async (req, res) => {
+  const { code } = req.query;
+  if (!code) {
+    return sendError(res, {
+      statusCode: 400,
+      message: "Missing Google authorization code"
+    });
+  }
+
+  const { clientId, clientSecret, callbackUrl } = getRequiredGoogleEnv();
+
+  const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    body: new URLSearchParams({
+      code: String(code),
+      client_id: clientId,
+      client_secret: clientSecret,
+      redirect_uri: callbackUrl,
+      grant_type: "authorization_code"
+    })
+  });
+
+  if (!tokenResponse.ok) {
+    return sendError(res, {
+      statusCode: 401,
+      message: "Google token exchange failed"
+    });
+  }
+
+  const tokenData = await tokenResponse.json();
+  const googleAccessToken = tokenData.access_token;
+
+  if (!googleAccessToken) {
+    return sendError(res, {
+      statusCode: 401,
+      message: "Google access token not received"
+    });
+  }
+
+  const profileResponse = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
+    headers: {
+      Authorization: `Bearer ${googleAccessToken}`
+    }
+  });
+
+  if (!profileResponse.ok) {
+    return sendError(res, {
+      statusCode: 401,
+      message: "Failed to fetch Google user profile"
+    });
+  }
+
+  const googleUser = await profileResponse.json();
+  const email = String(googleUser.email || "").trim().toLowerCase();
+  const name = String(googleUser.name || email.split("@")[0] || "Google User").trim();
+  const providerId = String(googleUser.id || "");
+
+  if (!email) {
+    return sendError(res, {
+      statusCode: 400,
+      message: "Google account email is required"
+    });
+  }
+
+  let user = await User.findOne({ email }).select("+password");
+  if (!user) {
+    user = await User.create({
+      name,
+      email,
+      authProvider: "google",
+      authProviderId: providerId,
+      isVerified: true,
+      password: null
+    });
+  } else if (!user.authProviderId && providerId) {
+    user.authProviderId = providerId;
+    if (!user.password) {
+      user.authProvider = "google";
+    }
+    await user.save();
+  }
+
+  user.lastLoginAt = new Date();
+  await user.save();
+
+  const tokens = await issueAuthTokens(req, user._id);
+
+  const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000/index.html";
+  const redirectUrl = new URL(frontendUrl);
+  redirectUrl.searchParams.set("oauth", "google");
+  redirectUrl.searchParams.set("token", tokens.accessToken);
+  redirectUrl.searchParams.set("refreshToken", tokens.refreshToken);
+
+  return res.redirect(redirectUrl.toString());
+});
+
 module.exports = {
   signup,
   login,
   me,
   refresh,
-  logout
+  logout,
+  googleLogin,
+  googleCallback
 };

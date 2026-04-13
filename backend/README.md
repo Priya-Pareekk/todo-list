@@ -43,6 +43,8 @@ http://localhost:5000
 - POST /api/auth/refresh
 - POST /api/auth/logout
 - GET /api/auth/me (requires Bearer token)
+- GET /api/auth/google
+- GET /api/auth/google/callback
 
 Signup body:
 {
@@ -133,3 +135,27 @@ Error:
 - Session persists across refresh via localStorage.
 - On 401 from protected calls, frontend auto-calls /api/auth/refresh once.
 - If refresh fails, frontend clears session and redirects to login.
+
+## 9) Google OAuth setup (step-by-step)
+
+1. Open Google Cloud Console and create/select a project.
+2. Go to APIs & Services -> OAuth consent screen.
+3. Configure consent screen (app name, support email, developer email).
+4. Add scopes: `openid`, `email`, `profile`.
+5. Go to APIs & Services -> Credentials -> Create Credentials -> OAuth client ID.
+6. Select Application type: Web application.
+7. Add Authorized redirect URI:
+  `http://localhost:5000/api/auth/google/callback`
+8. Copy generated Client ID and Client Secret.
+9. Update `backend/.env`:
+  - `GOOGLE_CLIENT_ID`
+  - `GOOGLE_CLIENT_SECRET`
+  - `GOOGLE_CALLBACK_URL=http://localhost:5000/api/auth/google/callback`
+  - `FRONTEND_URL=http://localhost:3000/index.html`
+10. Restart backend server.
+11. In frontend login page, click `Continue with Google`.
+
+Notes:
+- First Google login creates a user in MongoDB if email does not exist.
+- Existing users are logged in and receive the same JWT access/refresh flow.
+- Task/profile ownership remains tied to authenticated user from JWT.

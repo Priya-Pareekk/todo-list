@@ -1,5 +1,8 @@
 const API_BASE_URL = window.APP_CONFIG?.API_BASE_URL || "http://localhost:5000/api";
 const USER_CONTEXT_KEY = "pulsetasks-user-context";
+const TOKEN_STORAGE_KEY = "token";
+const REFRESH_TOKEN_STORAGE_KEY = "refreshToken";
+const USER_STORAGE_KEY = "user";
 
 const screens = {
   login: document.getElementById("login-screen"),
@@ -66,6 +69,8 @@ const refs = {
   sortBy: document.getElementById("sort-by")
 };
 
+refs.googleLoginBtn = document.querySelector("[data-action='google-login']");
+
 refs.loginSubmitBtn = refs.loginForm.querySelector("button[type='submit']");
 refs.taskSubmitBtn = refs.taskForm.querySelector("button[type='submit']");
 refs.signupSubmitBtn = refs.signupForm.querySelector("button[type='submit']");
@@ -111,22 +116,85 @@ function saveUserContext() {
     refreshToken: state.user.refreshToken
   };
   localStorage.setItem(USER_CONTEXT_KEY, JSON.stringify(context));
+
+  // Explicit keys for simpler debugging and compatibility.
+  localStorage.setItem(TOKEN_STORAGE_KEY, state.user.token || "");
+  localStorage.setItem(REFRESH_TOKEN_STORAGE_KEY, state.user.refreshToken || "");
+  localStorage.setItem(
+    USER_STORAGE_KEY,
+    JSON.stringify({
+      userId: state.user.id,
+      name: state.user.name,
+      email: state.user.email,
+      role: state.user.role
+    })
+  );
 }
 
 // Removes local user context on logout.
 function clearUserContext() {
   localStorage.removeItem(USER_CONTEXT_KEY);
+  localStorage.removeItem(TOKEN_STORAGE_KEY);
+  localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
+  localStorage.removeItem(USER_STORAGE_KEY);
 }
 
 // Reads user context from localStorage safely.
 function loadUserContext() {
   try {
-    const raw = localStorage.getItem(USER_CONTEXT_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw);
+    const rawContext = localStorage.getItem(USER_CONTEXT_KEY);
+    const token = localStorage.getItem(TOKEN_STORAGE_KEY) || "";
+    const refreshToken = localStorage.getItem(REFRESH_TOKEN_STORAGE_KEY) || "";
+    const rawUser = localStorage.getItem(USER_STORAGE_KEY);
+
+    let parsedContext = null;
+    if (rawContext) {
+      parsedContext = JSON.parse(rawContext);
+    }
+
+    let parsedUser = null;
+    if (rawUser) {
+      parsedUser = JSON.parse(rawUser);
+    }
+
+    // Merge both storage formats for backward compatibility.
+    if (!parsedContext && !token && !refreshToken && !parsedUser) {
+      return null;
+    }
+
+    return {
+      userId: parsedContext?.userId || parsedUser?.userId || "",
+      email: parsedContext?.email || parsedUser?.email || "",
+      name: parsedContext?.name || parsedUser?.name || "",
+      role: parsedContext?.role || parsedUser?.role || "user",
+      token: parsedContext?.token || token,
+      refreshToken: parsedContext?.refreshToken || refreshToken
+    };
   } catch (error) {
     return null;
   }
+}
+
+// Handles token redirect from Google OAuth callback.
+function consumeOAuthTokensFromUrl() {
+  const url = new URL(window.location.href);
+  const oauth = url.searchParams.get("oauth");
+  const token = url.searchParams.get("token");
+  const refreshToken = url.searchParams.get("refreshToken");
+
+  if (oauth !== "google" || !token || !refreshToken) {
+    return false;
+  }
+
+  state.user.token = token;
+  state.user.refreshToken = refreshToken;
+  saveUserContext();
+
+  url.searchParams.delete("oauth");
+  url.searchParams.delete("token");
+  url.searchParams.delete("refreshToken");
+  window.history.replaceState({}, "", url.toString());
+  return true;
 }
 
 // Shared fetch helper for backend communication.
@@ -136,8 +204,9 @@ async function apiRequest(path, options = {}, requireAuth = true, allowRefreshRe
     ...(options.headers || {})
   };
 
-  if (requireAuth && state.user.token) {
-    headers.authorization = `Bearer ${state.user.token}`;
+  const currentToken = state.user.token || localStorage.getItem(TOKEN_STORAGE_KEY) || "";
+  if (requireAuth && currentToken) {
+    headers.authorization = `Bearer ${currentToken}`;
   }
 
   let response;
@@ -380,7 +449,7 @@ async function signupUser(name, email, password) {
 
 // Performs secure login and stores JWT for protected API calls.
 async function loginUser(email, password) {
-  const data = await apiRequest(
+  const responseData = await apiRequest(
     "/auth/login",
     {
       method: "POST",
@@ -389,12 +458,17 @@ async function loginUser(email, password) {
     false
   );
 
-  state.user.id = data.user.userId;
-  state.user.name = data.user.name;
-  state.user.email = data.user.email;
-  state.user.role = data.user.role;
-  state.user.token = data.token;
-  state.user.refreshToken = data.refreshToken || "";
+  // Support both shapes:
+  // 1) already unwrapped: { token, refreshToken, user }
+  // 2) nested payload: { data: { token, refreshToken, user } }
+  const authData = responseData?.data ? responseData.data : responseData;
+
+  state.user.id = authData.user.userId;
+  state.user.name = authData.user.name;
+  state.user.email = authData.user.email;
+  state.user.role = authData.user.role;
+  state.user.token = authData.token;
+  state.user.refreshToken = authData.refreshToken || "";
   saveUserContext();
 }
 
@@ -605,6 +679,12 @@ async function upsertTaskFromForm(event) {
 
 // Connects top-level navigation/logout actions to backend-synced state.
 function bindGlobalActions() {
+  if (refs.googleLoginBtn) {
+    refs.googleLoginBtn.addEventListener("click", () => {
+      window.location.href = `${API_BASE_URL}/auth/google`;
+    });
+  }
+
   document.querySelectorAll("[data-go]").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const target = btn.dataset.go;
@@ -769,6 +849,7 @@ function initAuth() {
 
 // Initializes app with cached context and binds all interactions.
 function init() {
+  const hadOAuthTokensInUrl = consumeOAuthTokensFromUrl();
   const savedContext = loadUserContext();
   if (savedContext?.email) {
     refs.loginEmail.value = savedContext.email;
@@ -786,7 +867,7 @@ function init() {
   showScreen("login");
 
   // Try silent session restore, otherwise stay on login screen.
-  if (savedContext?.token) {
+  if (hadOAuthTokensInUrl || savedContext?.token) {
     tryRestoreSession(savedContext);
   }
 }
