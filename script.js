@@ -14,7 +14,8 @@ const state = {
     name: "Guest User",
     email: "",
     role: "user",
-    token: ""
+    token: "",
+    refreshToken: ""
   },
   activeProfileId: "",
   activeProfile: null,
@@ -89,6 +90,12 @@ function setButtonLoading(button, loading, loadingLabel, idleLabel) {
 
 // Handles screen switch between login, dashboard, and profile sections.
 function showScreen(name) {
+  const protectedScreens = new Set(["dashboard", "profile"]);
+  if (protectedScreens.has(name) && !state.user.token) {
+    notify("error", "Please login to continue.");
+    name = "login";
+  }
+
   Object.values(screens).forEach((screen) => screen.classList.remove("is-active"));
   screens[name].classList.add("is-active");
 }
@@ -100,7 +107,8 @@ function saveUserContext() {
     email: state.user.email,
     name: state.user.name,
     role: state.user.role,
-    token: state.user.token
+    token: state.user.token,
+    refreshToken: state.user.refreshToken
   };
   localStorage.setItem(USER_CONTEXT_KEY, JSON.stringify(context));
 }
@@ -122,7 +130,7 @@ function loadUserContext() {
 }
 
 // Shared fetch helper for backend communication.
-async function apiRequest(path, options = {}, requireAuth = true) {
+async function apiRequest(path, options = {}, requireAuth = true, allowRefreshRetry = true) {
   const headers = {
     "Content-Type": "application/json",
     ...(options.headers || {})
@@ -152,10 +160,71 @@ async function apiRequest(path, options = {}, requireAuth = true) {
   }
 
   if (!response.ok || !result.success) {
+    if (response.status === 401 && requireAuth && allowRefreshRetry && state.user.refreshToken) {
+      const refreshed = await refreshAccessToken();
+      if (refreshed) {
+        return apiRequest(path, options, requireAuth, false);
+      }
+    }
+
+    if (response.status === 401 || response.status === 403) {
+      clearUserContext();
+      state.user.id = "";
+      state.user.email = "";
+      state.user.name = "Guest User";
+      state.user.role = "user";
+      state.user.token = "";
+      state.user.refreshToken = "";
+      state.activeProfileId = "";
+      state.activeProfile = null;
+      state.tasks = [];
+      renderStats();
+      renderTasks();
+      showScreen("login");
+
+      const authMessage = response.status === 401
+        ? "Session expired or invalid. Please login again."
+        : "You are not allowed to access this resource.";
+      throw new Error(result.message || authMessage);
+    }
+
     throw new Error(result.message || "API request failed");
   }
 
   return result.data;
+}
+
+// Exchanges refresh token for a new access token when access token expires.
+async function refreshAccessToken() {
+  if (!state.user.refreshToken) return false;
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ refreshToken: state.user.refreshToken })
+    });
+
+    const result = await response.json();
+    if (!response.ok || !result.success) {
+      return false;
+    }
+
+    state.user.token = result.data.token;
+    state.user.refreshToken = result.data.refreshToken;
+    if (result.data.user) {
+      state.user.id = result.data.user.userId;
+      state.user.name = result.data.user.name;
+      state.user.email = result.data.user.email;
+      state.user.role = result.data.user.role;
+    }
+    saveUserContext();
+    return true;
+  } catch (error) {
+    return false;
+  }
 }
 
 // Applies backend user/profile values to the existing profile UI.
@@ -298,7 +367,7 @@ async function ensureDefaultProfile() {
 // Creates a new account from lightweight prompts, without changing the current UI.
 async function signupUser(name, email, password) {
   const data = await apiRequest(
-    "/users/signup",
+    "/auth/signup",
     {
       method: "POST",
       body: JSON.stringify({ name, email, password })
@@ -312,7 +381,7 @@ async function signupUser(name, email, password) {
 // Performs secure login and stores JWT for protected API calls.
 async function loginUser(email, password) {
   const data = await apiRequest(
-    "/users/login",
+    "/auth/login",
     {
       method: "POST",
       body: JSON.stringify({ email, password })
@@ -325,6 +394,7 @@ async function loginUser(email, password) {
   state.user.email = data.user.email;
   state.user.role = data.user.role;
   state.user.token = data.token;
+  state.user.refreshToken = data.refreshToken || "";
   saveUserContext();
 }
 
@@ -337,9 +407,10 @@ async function tryRestoreSession(savedContext) {
   state.user.email = savedContext.email || "";
   state.user.name = savedContext.name || "Guest User";
   state.user.role = savedContext.role || "user";
+  state.user.refreshToken = savedContext.refreshToken || "";
 
   try {
-    const me = await apiRequest("/users/me", {}, true);
+    const me = await apiRequest("/auth/me", {}, true);
     state.user.id = me.userId;
     state.user.name = me.name;
     state.user.email = me.email;
@@ -351,6 +422,7 @@ async function tryRestoreSession(savedContext) {
   } catch (error) {
     clearUserContext();
     state.user.token = "";
+    state.user.refreshToken = "";
     return false;
   }
 }
@@ -557,13 +629,30 @@ function bindGlobalActions() {
   });
 
   document.querySelectorAll("[data-action='logout']").forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
+      if (state.user.refreshToken) {
+        try {
+          await apiRequest(
+            "/auth/logout",
+            {
+              method: "POST",
+              body: JSON.stringify({ refreshToken: state.user.refreshToken })
+            },
+            false,
+            false
+          );
+        } catch (error) {
+          // Continue local logout even if server-side revoke request fails.
+        }
+      }
+
       clearUserContext();
       state.user.id = "";
       state.user.email = "";
       state.user.name = "Guest User";
       state.user.role = "user";
       state.user.token = "";
+      state.user.refreshToken = "";
       state.activeProfileId = "";
       state.activeProfile = null;
       state.tasks = [];

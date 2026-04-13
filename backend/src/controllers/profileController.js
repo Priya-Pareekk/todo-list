@@ -42,6 +42,11 @@ const getProfileById = asyncHandler(async (req, res) => {
 
   const profile = await Profile.findOne({ _id: id, userId: req.user._id });
   if (!profile) {
+    const existsForAnotherUser = await Profile.exists({ _id: id });
+    if (existsForAnotherUser) {
+      return sendError(res, { statusCode: 403, message: "Forbidden: profile belongs to another user" });
+    }
+
     return sendError(res, { statusCode: 404, message: "Profile not found" });
   }
 
@@ -71,6 +76,11 @@ const updateProfile = asyncHandler(async (req, res) => {
   );
 
   if (!profile) {
+    const existsForAnotherUser = await Profile.exists({ _id: id });
+    if (existsForAnotherUser) {
+      return sendError(res, { statusCode: 403, message: "Forbidden: profile belongs to another user" });
+    }
+
     return sendError(res, { statusCode: 404, message: "Profile not found" });
   }
 
@@ -89,6 +99,11 @@ const deleteProfile = asyncHandler(async (req, res) => {
 
   const profile = await Profile.findOne({ _id: id, userId: req.user._id });
   if (!profile) {
+    const existsForAnotherUser = await Profile.exists({ _id: id });
+    if (existsForAnotherUser) {
+      return sendError(res, { statusCode: 403, message: "Forbidden: profile belongs to another user" });
+    }
+
     return sendError(res, { statusCode: 404, message: "Profile not found" });
   }
 

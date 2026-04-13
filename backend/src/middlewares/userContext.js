@@ -40,6 +40,13 @@ const requireUserContext = async (req, res, next) => {
     });
   }
 
+  if (payload.type && payload.type !== "access") {
+    return sendError(res, {
+      statusCode: 403,
+      message: "Forbidden: access token required"
+    });
+  }
+
   const user = await User.findById(userId);
   if (!user) {
     return sendError(res, {

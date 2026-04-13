@@ -1,20 +1,37 @@
 const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
 const User = require("../models/User");
+const RefreshToken = require("../models/RefreshToken");
 const asyncHandler = require("../utils/asyncHandler");
 const { sendSuccess, sendError } = require("../utils/apiResponse");
-
-const buildJwtToken = (userId) => {
-  const secret = process.env.JWT_SECRET;
-  if (!secret) {
-    throw new Error("JWT_SECRET is missing in environment variables.");
-  }
-
-  return jwt.sign({ sub: userId }, secret, { expiresIn: "1d" });
-};
+const {
+  toTokenHash,
+  parseExpiryToDate,
+  buildAccessToken,
+  buildRefreshToken,
+  verifyRefreshToken,
+  getRefreshExpiresIn
+} = require("../utils/tokenService");
 
 const isOAuthOnlyAccount = (user) => {
   return user.authProvider !== "local" && !user.password;
+};
+
+const issueAuthTokens = async (req, userId) => {
+  const accessToken = buildAccessToken(String(userId));
+  const refreshToken = buildRefreshToken(String(userId));
+
+  await RefreshToken.create({
+    userId,
+    tokenHash: toTokenHash(refreshToken),
+    expiresAt: parseExpiryToDate(getRefreshExpiresIn()),
+    userAgent: req.header("user-agent") || "",
+    ipAddress: req.ip || ""
+  });
+
+  return {
+    accessToken,
+    refreshToken
+  };
 };
 
 // Creates a new local user account with hashed password.
@@ -143,7 +160,7 @@ const login = asyncHandler(async (req, res) => {
   user.lastLoginAt = new Date();
   await user.save();
 
-  const token = buildJwtToken(String(user._id));
+  const tokens = await issueAuthTokens(req, user._id);
 
   console.log("[auth] login success", { userId: String(user._id), email: user.email });
 
@@ -151,7 +168,8 @@ const login = asyncHandler(async (req, res) => {
     statusCode: 200,
     message: "Login successful",
     data: {
-      token,
+      token: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
       user: {
         userId: user._id,
         name: user.name,
@@ -186,8 +204,94 @@ const me = asyncHandler(async (req, res) => {
   });
 });
 
+// Exchanges a valid refresh token for new access + refresh tokens.
+const refresh = asyncHandler(async (req, res) => {
+  const { refreshToken } = req.body;
+
+  if (!refreshToken) {
+    return sendError(res, {
+      statusCode: 401,
+      message: "refreshToken is required"
+    });
+  }
+
+  let payload;
+  try {
+    payload = verifyRefreshToken(refreshToken);
+  } catch (error) {
+    return sendError(res, {
+      statusCode: 401,
+      message: "Invalid or expired refresh token"
+    });
+  }
+
+  if (payload.type !== "refresh") {
+    return sendError(res, {
+      statusCode: 401,
+      message: "Invalid refresh token payload"
+    });
+  }
+
+  const tokenHash = toTokenHash(refreshToken);
+  const tokenRecord = await RefreshToken.findOne({
+    tokenHash,
+    userId: payload.sub,
+    revokedAt: null,
+    expiresAt: { $gt: new Date() }
+  });
+
+  if (!tokenRecord) {
+    return sendError(res, {
+      statusCode: 401,
+      message: "Refresh token is revoked, expired, or unknown"
+    });
+  }
+
+  tokenRecord.revokedAt = new Date();
+  await tokenRecord.save();
+
+  const tokens = await issueAuthTokens(req, payload.sub);
+  const user = await User.findById(payload.sub);
+
+  return sendSuccess(res, {
+    statusCode: 200,
+    message: "Token refreshed",
+    data: {
+      token: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      user: {
+        userId: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role
+      }
+    }
+  });
+});
+
+// Revokes current refresh token to logout this session.
+const logout = asyncHandler(async (req, res) => {
+  const { refreshToken } = req.body;
+
+  if (refreshToken) {
+    const tokenHash = toTokenHash(refreshToken);
+    await RefreshToken.updateOne(
+      { tokenHash, revokedAt: null },
+      { $set: { revokedAt: new Date() } }
+    );
+  }
+
+  return sendSuccess(res, {
+    statusCode: 200,
+    message: "Logged out successfully",
+    data: null
+  });
+});
+
 module.exports = {
   signup,
   login,
-  me
+  me,
+  refresh,
+  logout
 };

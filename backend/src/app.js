@@ -1,6 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const morgan = require("morgan");
+const authRoutes = require("./routes/authRoutes");
 const userRoutes = require("./routes/userRoutes");
 const profileRoutes = require("./routes/profileRoutes");
 const taskRoutes = require("./routes/taskRoutes");
@@ -34,6 +35,7 @@ app.get("/api/db-health", (req, res) => {
   });
 });
 
+app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 
 // All profile and task endpoints require user context (future JWT can set req.user).

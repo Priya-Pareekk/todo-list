@@ -13,6 +13,11 @@ const createTask = asyncHandler(async (req, res) => {
 
   const profile = await Profile.findOne({ _id: profileId, userId: req.user._id });
   if (!profile) {
+    const existsForAnotherUser = await Profile.exists({ _id: profileId });
+    if (existsForAnotherUser) {
+      return sendError(res, { statusCode: 403, message: "Forbidden: profile belongs to another user" });
+    }
+
     return sendError(res, { statusCode: 404, message: "Profile not found for this user" });
   }
 
@@ -52,6 +57,15 @@ const getTasksByProfile = asyncHandler(async (req, res) => {
     return sendError(res, { statusCode: 400, message: "Invalid profile id" });
   }
 
+  const ownProfile = await Profile.findOne({ _id: profileId, userId: req.user._id });
+  if (!ownProfile) {
+    const existsForAnotherUser = await Profile.exists({ _id: profileId });
+    if (existsForAnotherUser) {
+      return sendError(res, { statusCode: 403, message: "Forbidden: profile belongs to another user" });
+    }
+    return sendError(res, { statusCode: 404, message: "Profile not found" });
+  }
+
   const tasks = await Task.find({ userId: req.user._id, profileId }).sort({ createdAt: -1 });
 
   return sendSuccess(res, {
@@ -74,6 +88,11 @@ const updateTask = asyncHandler(async (req, res) => {
   );
 
   if (!task) {
+    const existsForAnotherUser = await Task.exists({ _id: id });
+    if (existsForAnotherUser) {
+      return sendError(res, { statusCode: 403, message: "Forbidden: task belongs to another user" });
+    }
+
     return sendError(res, { statusCode: 404, message: "Task not found" });
   }
 
@@ -93,6 +112,11 @@ const deleteTask = asyncHandler(async (req, res) => {
   const task = await Task.findOneAndDelete({ _id: id, userId: req.user._id });
 
   if (!task) {
+    const existsForAnotherUser = await Task.exists({ _id: id });
+    if (existsForAnotherUser) {
+      return sendError(res, { statusCode: 403, message: "Forbidden: task belongs to another user" });
+    }
+
     return sendError(res, { statusCode: 404, message: "Task not found" });
   }
 
@@ -117,6 +141,11 @@ const updateTaskStatus = asyncHandler(async (req, res) => {
   );
 
   if (!task) {
+    const existsForAnotherUser = await Task.exists({ _id: id });
+    if (existsForAnotherUser) {
+      return sendError(res, { statusCode: 403, message: "Forbidden: task belongs to another user" });
+    }
+
     return sendError(res, { statusCode: 404, message: "Task not found" });
   }
 

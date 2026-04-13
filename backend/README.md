@@ -19,6 +19,10 @@ Create a .env file in backend folder using .env.example:
 
 PORT=5000
 MONGODB_URI=your_mongodb_atlas_connection_string
+JWT_SECRET=your_long_random_secret
+JWT_EXPIRES_IN=1d
+JWT_REFRESH_SECRET=your_long_random_refresh_secret
+JWT_REFRESH_EXPIRES_IN=7d
 
 ## 3) Install and run locally
 
@@ -33,23 +37,42 @@ http://localhost:5000
 
 ## 4) API endpoints
 
-### User context bootstrap
-- POST /api/users/bootstrap
+### Auth
+- POST /api/auth/signup
+- POST /api/auth/login
+- POST /api/auth/refresh
+- POST /api/auth/logout
+- GET /api/auth/me (requires Bearer token)
 
-Body:
+Signup body:
 {
+  "name": "Demo User",
   "email": "demo@example.com",
-  "displayName": "Demo User"
+  "password": "DemoPass123!"
 }
 
-### Profiles (requires x-user-id header)
+Login body:
+{
+  "email": "demo@example.com",
+  "password": "DemoPass123!"
+}
+
+Authorization header for protected endpoints:
+Authorization: Bearer <jwt_token>
+
+Refresh body:
+{
+  "refreshToken": "<refresh_token>"
+}
+
+### Profiles (requires Bearer token)
 - POST /api/profiles
 - GET /api/profiles
 - GET /api/profiles/:id
 - PUT /api/profiles/:id
 - DELETE /api/profiles/:id
 
-### Tasks (requires x-user-id header)
+### Tasks (requires Bearer token)
 - POST /api/tasks
 - GET /api/tasks
 - GET /api/tasks/profile/:profileId
@@ -89,6 +112,24 @@ Error:
 - Relation model:
   - one user -> many profiles
   - one profile -> many tasks
-- Current user context is passed via x-user-id header.
-- This is intentionally structured so JWT middleware can replace the current context middleware later with minimal refactor.
+- User identity is resolved from JWT token for all protected routes.
+- Profiles and tasks are always queried with req.user from token to keep user data isolated.
 - OAuth and Razorpay can be added by extending User fields and adding dedicated routes/services.
+
+## 7) Local auth test steps
+
+1. Start backend:
+  npm run start
+2. Signup using /api/auth/signup
+3. Login using /api/auth/login and copy token
+4. Call /api/auth/me with Authorization header
+5. Call /api/profiles and /api/tasks using same Bearer token
+6. Call /api/auth/refresh with refreshToken to rotate tokens
+7. Call /api/auth/logout to revoke current refresh session
+
+## 8) Frontend JWT behavior
+
+- Access token and refresh token are stored after login.
+- Session persists across refresh via localStorage.
+- On 401 from protected calls, frontend auto-calls /api/auth/refresh once.
+- If refresh fails, frontend clears session and redirects to login.
