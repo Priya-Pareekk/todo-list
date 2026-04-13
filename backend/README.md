@@ -23,6 +23,8 @@ JWT_SECRET=your_long_random_secret
 JWT_EXPIRES_IN=1d
 JWT_REFRESH_SECRET=your_long_random_refresh_secret
 JWT_REFRESH_EXPIRES_IN=7d
+RAZORPAY_KEY_ID=your_razorpay_test_key_id
+RAZORPAY_KEY_SECRET=your_razorpay_test_key_secret
 
 ## 3) Install and run locally
 
@@ -82,6 +84,12 @@ Refresh body:
 - DELETE /api/tasks/:id
 - PATCH /api/tasks/:id/status
 
+### Billing (requires Bearer token)
+- GET /api/billing/config
+- GET /api/billing/subscription
+- POST /api/billing/create-order
+- POST /api/billing/verify
+
 ## 5) Standard response format
 
 Success:
@@ -118,7 +126,18 @@ Error:
 - Profiles and tasks are always queried with req.user from token to keep user data isolated.
 - OAuth and Razorpay can be added by extending User fields and adding dedicated routes/services.
 
-## 7) Local auth test steps
+## 7) Plan limits
+
+- Free plan:
+  - max 2 profiles
+  - max 20 tasks
+- Premium plan:
+  - unlimited profiles
+  - unlimited tasks
+
+When free limits are reached, backend returns 403 with a clear message.
+
+## 8) Local auth test steps
 
 1. Start backend:
   npm run start
@@ -129,14 +148,14 @@ Error:
 6. Call /api/auth/refresh with refreshToken to rotate tokens
 7. Call /api/auth/logout to revoke current refresh session
 
-## 8) Frontend JWT behavior
+## 9) Frontend JWT behavior
 
 - Access token and refresh token are stored after login.
 - Session persists across refresh via localStorage.
 - On 401 from protected calls, frontend auto-calls /api/auth/refresh once.
 - If refresh fails, frontend clears session and redirects to login.
 
-## 9) Google OAuth setup (step-by-step)
+## 10) Google OAuth setup (step-by-step)
 
 1. Open Google Cloud Console and create/select a project.
 2. Go to APIs & Services -> OAuth consent screen.
@@ -159,3 +178,23 @@ Notes:
 - First Google login creates a user in MongoDB if email does not exist.
 - Existing users are logged in and receive the same JWT access/refresh flow.
 - Task/profile ownership remains tied to authenticated user from JWT.
+
+## 11) Razorpay test mode setup and testing
+
+1. Create a Razorpay account and switch to Test Mode.
+2. Copy Test Key ID and Test Key Secret.
+3. Update backend `.env`:
+  - `RAZORPAY_KEY_ID`
+  - `RAZORPAY_KEY_SECRET`
+4. Restart backend server.
+5. Login in frontend.
+6. Open Profile screen and click `Upgrade to Premium`.
+7. Complete test payment using Razorpay test card/UPI details.
+8. After success, backend verifies signature, marks payment captured, and upgrades subscription.
+9. Confirm with API:
+  - `GET /api/auth/me` -> `subscriptionPlan: premium`, `isPremium: true`
+  - `GET /api/billing/subscription` -> `plan: premium`, `isPremiumAccess: true`
+
+Failure handling:
+- If checkout is closed, frontend shows `Payment cancelled`.
+- If signature is invalid, backend marks payment as failed and returns verification error.

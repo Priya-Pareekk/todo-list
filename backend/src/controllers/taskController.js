@@ -3,9 +3,25 @@ const Profile = require("../models/Profile");
 const Task = require("../models/Task");
 const asyncHandler = require("../utils/asyncHandler");
 const { sendSuccess, sendError } = require("../utils/apiResponse");
+const {
+  resolveUserPlan,
+  isPremiumPlan,
+  FREE_TASK_LIMIT
+} = require("../utils/planAccess");
 
 const createTask = asyncHandler(async (req, res) => {
   const { profileId, title, description, priority, status, dueDate, category, tags } = req.body;
+
+  const currentPlan = resolveUserPlan(req.user);
+  if (!isPremiumPlan(currentPlan)) {
+    const taskCount = await Task.countDocuments({ userId: req.user._id });
+    if (taskCount >= FREE_TASK_LIMIT) {
+      return sendError(res, {
+        statusCode: 403,
+        message: `Free plan limit reached. You can create up to ${FREE_TASK_LIMIT} tasks.`
+      });
+    }
+  }
 
   if (!mongoose.Types.ObjectId.isValid(profileId)) {
     return sendError(res, { statusCode: 400, message: "Invalid profileId" });

@@ -17,6 +17,8 @@ const state = {
     name: "Guest User",
     email: "",
     role: "user",
+    subscriptionPlan: "free",
+    isPremium: false,
     token: "",
     refreshToken: ""
   },
@@ -44,6 +46,9 @@ const refs = {
   welcomeName: document.getElementById("welcome-name"),
   profileName: document.getElementById("profile-name"),
   profileEmail: document.getElementById("profile-email"),
+  profilePlan: document.getElementById("profile-plan"),
+  premiumAccessTag: document.getElementById("premium-access-tag"),
+  upgradePremiumBtn: document.getElementById("upgrade-premium-btn"),
   roleTag: document.querySelector(".role-tag"),
   statTotal: document.getElementById("stat-total"),
   statActive: document.getElementById("stat-active"),
@@ -74,6 +79,10 @@ refs.googleLoginBtn = document.querySelector("[data-action='google-login']");
 refs.loginSubmitBtn = refs.loginForm.querySelector("button[type='submit']");
 refs.taskSubmitBtn = refs.taskForm.querySelector("button[type='submit']");
 refs.signupSubmitBtn = refs.signupForm.querySelector("button[type='submit']");
+
+const billingState = {
+  keyId: ""
+};
 
 // Shows consistent success/error messages while keeping existing UI unchanged.
 function notify(type, message) {
@@ -112,6 +121,8 @@ function saveUserContext() {
     email: state.user.email,
     name: state.user.name,
     role: state.user.role,
+    subscriptionPlan: state.user.subscriptionPlan,
+    isPremium: Boolean(state.user.isPremium),
     token: state.user.token,
     refreshToken: state.user.refreshToken
   };
@@ -126,7 +137,9 @@ function saveUserContext() {
       userId: state.user.id,
       name: state.user.name,
       email: state.user.email,
-      role: state.user.role
+      role: state.user.role,
+      subscriptionPlan: state.user.subscriptionPlan,
+      isPremium: Boolean(state.user.isPremium)
     })
   );
 }
@@ -167,6 +180,8 @@ function loadUserContext() {
       email: parsedContext?.email || parsedUser?.email || "",
       name: parsedContext?.name || parsedUser?.name || "",
       role: parsedContext?.role || parsedUser?.role || "user",
+      subscriptionPlan: parsedContext?.subscriptionPlan || parsedUser?.subscriptionPlan || "free",
+      isPremium: Boolean(parsedContext?.isPremium || parsedUser?.isPremium),
       token: parsedContext?.token || token,
       refreshToken: parsedContext?.refreshToken || refreshToken
     };
@@ -242,6 +257,8 @@ async function apiRequest(path, options = {}, requireAuth = true, allowRefreshRe
       state.user.email = "";
       state.user.name = "Guest User";
       state.user.role = "user";
+      state.user.subscriptionPlan = "free";
+      state.user.isPremium = false;
       state.user.token = "";
       state.user.refreshToken = "";
       state.activeProfileId = "";
@@ -288,6 +305,8 @@ async function refreshAccessToken() {
       state.user.name = result.data.user.name;
       state.user.email = result.data.user.email;
       state.user.role = result.data.user.role;
+      state.user.subscriptionPlan = result.data.user.subscriptionPlan || "free";
+      state.user.isPremium = Boolean(result.data.user.isPremium);
     }
     saveUserContext();
     return true;
@@ -301,7 +320,10 @@ function applyUserData() {
   refs.welcomeName.textContent = state.user.name || "User";
   refs.profileName.textContent = state.user.name || "User";
   refs.profileEmail.textContent = state.user.email || "-";
+  refs.profilePlan.textContent = state.user.subscriptionPlan || "free";
+  refs.premiumAccessTag.textContent = state.user.isPremium ? "Yes" : "No";
   refs.roleTag.textContent = state.activeProfile?.role || state.user.role || "user";
+  refs.upgradePremiumBtn.hidden = Boolean(state.user.isPremium);
 }
 
 function toDueLabel(dateStr) {
@@ -467,6 +489,8 @@ async function loginUser(email, password) {
   state.user.name = authData.user.name;
   state.user.email = authData.user.email;
   state.user.role = authData.user.role;
+  state.user.subscriptionPlan = authData.user.subscriptionPlan || "free";
+  state.user.isPremium = Boolean(authData.user.isPremium);
   state.user.token = authData.token;
   state.user.refreshToken = authData.refreshToken || "";
   saveUserContext();
@@ -481,6 +505,8 @@ async function tryRestoreSession(savedContext) {
   state.user.email = savedContext.email || "";
   state.user.name = savedContext.name || "Guest User";
   state.user.role = savedContext.role || "user";
+  state.user.subscriptionPlan = savedContext.subscriptionPlan || "free";
+  state.user.isPremium = Boolean(savedContext.isPremium);
   state.user.refreshToken = savedContext.refreshToken || "";
 
   try {
@@ -489,6 +515,8 @@ async function tryRestoreSession(savedContext) {
     state.user.name = me.name;
     state.user.email = me.email;
     state.user.role = me.role;
+    state.user.subscriptionPlan = me.subscriptionPlan || "free";
+    state.user.isPremium = Boolean(me.isPremium);
     saveUserContext();
     await hydrateDashboardData();
     showScreen("dashboard");
@@ -496,8 +524,108 @@ async function tryRestoreSession(savedContext) {
   } catch (error) {
     clearUserContext();
     state.user.token = "";
+    state.user.subscriptionPlan = "free";
+    state.user.isPremium = false;
     state.user.refreshToken = "";
     return false;
+  }
+}
+
+async function loadBillingConfig() {
+  if (billingState.keyId) return billingState;
+
+  const config = await apiRequest("/billing/config", {}, true);
+  billingState.keyId = config.keyId || "";
+
+  if (!billingState.keyId) {
+    throw new Error("Payment setup incomplete on server. Please add Razorpay env keys.");
+  }
+
+  return billingState;
+}
+
+async function startPremiumUpgrade() {
+  if (!state.user.token) {
+    notify("error", "Please login first.");
+    return;
+  }
+
+  if (state.user.isPremium) {
+    notify("success", "Your account is already on Premium.");
+    return;
+  }
+
+  if (!window.Razorpay) {
+    notify("error", "Razorpay SDK failed to load. Check internet connection and retry.");
+    return;
+  }
+
+  try {
+    setButtonLoading(refs.upgradePremiumBtn, true, "Opening...", "Upgrade to Premium");
+
+    const config = await loadBillingConfig();
+    const order = await apiRequest(
+      "/billing/create-order",
+      {
+        method: "POST",
+        body: JSON.stringify({ plan: "premium" })
+      },
+      true
+    );
+
+    const razorpayInstance = new window.Razorpay({
+      key: config.keyId,
+      amount: order.amount,
+      currency: order.currency,
+      name: "PulseTasks",
+      description: "Premium Plan Upgrade",
+      order_id: order.orderId,
+      prefill: {
+        name: state.user.name,
+        email: state.user.email
+      },
+      handler: async (response) => {
+        try {
+          const verification = await apiRequest(
+            "/billing/verify",
+            {
+              method: "POST",
+              body: JSON.stringify({
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature,
+                plan: "premium"
+              })
+            },
+            true
+          );
+
+          state.user.subscriptionPlan = verification.user?.subscriptionPlan || "premium";
+          state.user.isPremium = Boolean(verification.user?.isPremium);
+          saveUserContext();
+          applyUserData();
+          notify("success", "Payment successful. Premium activated.");
+        } catch (error) {
+          notify("error", error.message || "Payment verification failed.");
+        }
+      },
+      modal: {
+        ondismiss: () => {
+          notify("error", "Payment cancelled.");
+        }
+      }
+    });
+
+    razorpayInstance.on("payment.failed", (response) => {
+      const reason = response?.error?.description || response?.error?.reason || "Payment failed.";
+      notify("error", reason);
+    });
+
+    razorpayInstance.open();
+  } catch (error) {
+    notify("error", error.message || "Unable to start payment.");
+  } finally {
+    setButtonLoading(refs.upgradePremiumBtn, false, "Opening...", "Upgrade to Premium");
   }
 }
 
@@ -731,6 +859,8 @@ function bindGlobalActions() {
       state.user.email = "";
       state.user.name = "Guest User";
       state.user.role = "user";
+      state.user.subscriptionPlan = "free";
+      state.user.isPremium = false;
       state.user.token = "";
       state.user.refreshToken = "";
       state.activeProfileId = "";
@@ -743,6 +873,10 @@ function bindGlobalActions() {
       showScreen("login");
     });
   });
+
+  if (refs.upgradePremiumBtn) {
+    refs.upgradePremiumBtn.addEventListener("click", startPremiumUpgrade);
+  }
 
 }
 

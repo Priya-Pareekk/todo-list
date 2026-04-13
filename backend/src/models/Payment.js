@@ -43,8 +43,17 @@ const paymentSchema = new mongoose.Schema(
     },
     plan: {
       type: String,
-      enum: ["free", "pro", "team", "enterprise"],
+      enum: ["free", "premium", "pro", "team", "enterprise"],
       required: true
+    },
+    notes: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {}
+    },
+    failureReason: {
+      type: String,
+      default: "",
+      trim: true
     }
   },
   {

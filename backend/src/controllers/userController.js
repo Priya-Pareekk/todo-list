@@ -186,7 +186,9 @@ const login = asyncHandler(async (req, res) => {
         userId: user._id,
         name: user.name,
         email: user.email,
-        role: user.role
+        role: user.role,
+        subscriptionPlan: user.subscriptionPlan,
+        isPremium: user.isPremium
       }
     }
   });
@@ -211,6 +213,7 @@ const me = asyncHandler(async (req, res) => {
       email: user.email,
       role: user.role,
       subscriptionPlan: user.subscriptionPlan,
+      isPremium: user.isPremium,
       authProvider: user.authProvider
     }
   });
@@ -275,7 +278,9 @@ const refresh = asyncHandler(async (req, res) => {
         userId: user._id,
         name: user.name,
         email: user.email,
-        role: user.role
+        role: user.role,
+        subscriptionPlan: user.subscriptionPlan,
+        isPremium: user.isPremium
       }
     }
   });
@@ -342,9 +347,23 @@ const googleCallback = asyncHandler(async (req, res) => {
   });
 
   if (!tokenResponse.ok) {
+    let tokenErrorDetail = "";
+    try {
+      const tokenErrorBody = await tokenResponse.json();
+      const errorCode = tokenErrorBody?.error ? String(tokenErrorBody.error) : "";
+      const errorDescription = tokenErrorBody?.error_description
+        ? String(tokenErrorBody.error_description)
+        : "";
+      tokenErrorDetail = [errorCode, errorDescription].filter(Boolean).join(": ");
+    } catch (_err) {
+      tokenErrorDetail = "";
+    }
+
     return sendError(res, {
       statusCode: 401,
-      message: "Google token exchange failed"
+      message: tokenErrorDetail
+        ? `Google token exchange failed (${tokenErrorDetail})`
+        : "Google token exchange failed"
     });
   }
 

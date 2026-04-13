@@ -42,8 +42,13 @@ const userSchema = new mongoose.Schema(
     },
     subscriptionPlan: {
       type: String,
-      enum: ["free", "pro", "team", "enterprise"],
+      enum: ["free", "premium", "pro", "team", "enterprise"],
       default: "free"
+    },
+    isPremium: {
+      type: Boolean,
+      default: false,
+      index: true
     },
     lastLoginAt: {
       type: Date,

@@ -10,8 +10,13 @@ const subscriptionSchema = new mongoose.Schema(
     },
     plan: {
       type: String,
-      enum: ["free", "pro", "team", "enterprise"],
+      enum: ["free", "premium", "pro", "team", "enterprise"],
       default: "free"
+    },
+    isPremiumAccess: {
+      type: Boolean,
+      default: false,
+      index: true
     },
     status: {
       type: String,

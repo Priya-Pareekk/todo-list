@@ -3,9 +3,25 @@ const Profile = require("../models/Profile");
 const Task = require("../models/Task");
 const asyncHandler = require("../utils/asyncHandler");
 const { sendSuccess, sendError } = require("../utils/apiResponse");
+const {
+  resolveUserPlan,
+  isPremiumPlan,
+  FREE_PROFILE_LIMIT
+} = require("../utils/planAccess");
 
 const createProfile = asyncHandler(async (req, res) => {
   const profileName = req.body.profileName || req.body.name;
+
+  const currentPlan = resolveUserPlan(req.user);
+  if (!isPremiumPlan(currentPlan)) {
+    const profileCount = await Profile.countDocuments({ userId: req.user._id });
+    if (profileCount >= FREE_PROFILE_LIMIT) {
+      return sendError(res, {
+        statusCode: 403,
+        message: `Free plan limit reached. You can create up to ${FREE_PROFILE_LIMIT} profiles.`
+      });
+    }
+  }
 
   const profile = await Profile.create({
     userId: req.user._id,

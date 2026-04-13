@@ -5,6 +5,7 @@ const authRoutes = require("./routes/authRoutes");
 const userRoutes = require("./routes/userRoutes");
 const profileRoutes = require("./routes/profileRoutes");
 const taskRoutes = require("./routes/taskRoutes");
+const billingRoutes = require("./routes/billingRoutes");
 const requireUserContext = require("./middlewares/userContext");
 const { getDbState } = require("./config/db");
 const { notFound, errorHandler } = require("./middlewares/errorHandler");
@@ -41,6 +42,7 @@ app.use("/api/users", userRoutes);
 // All profile and task endpoints require user context (future JWT can set req.user).
 app.use("/api/profiles", requireUserContext, profileRoutes);
 app.use("/api/tasks", requireUserContext, taskRoutes);
+app.use("/api/billing", requireUserContext, billingRoutes);
 
 app.use(notFound);
 app.use(errorHandler);
