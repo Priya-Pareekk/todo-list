@@ -2,7 +2,7 @@ const FREE_PLAN = "free";
 const PREMIUM_PLAN = "premium";
 
 const FREE_PROFILE_LIMIT = 2;
-const FREE_TASK_LIMIT = 20;
+const FREE_TASK_LIMIT = 3;
 
 function normalizePlan(plan) {
   const raw = String(plan || FREE_PLAN).trim().toLowerCase();

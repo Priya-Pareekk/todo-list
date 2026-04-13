@@ -47,8 +47,11 @@ const refs = {
   profileName: document.getElementById("profile-name"),
   profileEmail: document.getElementById("profile-email"),
   profilePlan: document.getElementById("profile-plan"),
-  premiumAccessTag: document.getElementById("premium-access-tag"),
+  taskUsageLabel: document.getElementById("task-usage-label"),
   upgradePremiumBtn: document.getElementById("upgrade-premium-btn"),
+  premiumRequiredModal: document.getElementById("premium-required-modal"),
+  modalUpgradeBtn: document.getElementById("modal-upgrade-btn"),
+  modalCancelBtn: document.getElementById("modal-cancel-btn"),
   roleTag: document.querySelector(".role-tag"),
   statTotal: document.getElementById("stat-total"),
   statActive: document.getElementById("stat-active"),
@@ -251,7 +254,7 @@ async function apiRequest(path, options = {}, requireAuth = true, allowRefreshRe
       }
     }
 
-    if (response.status === 401 || response.status === 403) {
+    if (response.status === 401) {
       clearUserContext();
       state.user.id = "";
       state.user.email = "";
@@ -268,10 +271,12 @@ async function apiRequest(path, options = {}, requireAuth = true, allowRefreshRe
       renderTasks();
       showScreen("login");
 
-      const authMessage = response.status === 401
-        ? "Session expired or invalid. Please login again."
-        : "You are not allowed to access this resource.";
+      const authMessage = "Session expired or invalid. Please login again.";
       throw new Error(result.message || authMessage);
+    }
+
+    if (response.status === 403) {
+      throw new Error(result.message || "You are not allowed to access this resource.");
     }
 
     throw new Error(result.message || "API request failed");
@@ -320,10 +325,48 @@ function applyUserData() {
   refs.welcomeName.textContent = state.user.name || "User";
   refs.profileName.textContent = state.user.name || "User";
   refs.profileEmail.textContent = state.user.email || "-";
-  refs.profilePlan.textContent = state.user.subscriptionPlan || "free";
-  refs.premiumAccessTag.textContent = state.user.isPremium ? "Yes" : "No";
+  refs.profilePlan.textContent = `Current Plan: ${state.user.isPremium ? "Premium" : "Free"}`;
   refs.roleTag.textContent = state.activeProfile?.role || state.user.role || "user";
   refs.upgradePremiumBtn.hidden = Boolean(state.user.isPremium);
+  renderTaskUsage();
+}
+
+function renderTaskUsage() {
+  if (!refs.taskUsageLabel) return;
+
+  if (state.user.isPremium) {
+    refs.taskUsageLabel.textContent = "Task Usage: Unlimited";
+    return;
+  }
+
+  refs.taskUsageLabel.textContent = `Task Usage: ${state.tasks.length} / 3`;
+}
+
+function closePremiumRequiredModal() {
+  const modal = refs.premiumRequiredModal;
+  if (!modal) return;
+
+  if (typeof modal.close === "function" && modal.open) {
+    modal.close();
+    return;
+  }
+
+  modal.hidden = true;
+}
+
+function openPremiumRequiredModal() {
+  const modal = refs.premiumRequiredModal;
+  if (!modal) {
+    notify("error", "Premium required to add more tasks");
+    return;
+  }
+
+  if (typeof modal.showModal === "function") {
+    modal.showModal();
+    return;
+  }
+
+  modal.hidden = false;
 }
 
 function toDueLabel(dateStr) {
@@ -388,6 +431,7 @@ function renderStats() {
   refs.statActive.textContent = String(active);
   refs.statCompleted.textContent = String(completed);
   refs.statOverdue.textContent = String(overdue);
+  renderTaskUsage();
 }
 
 function mapTaskFromApi(task) {
@@ -580,6 +624,36 @@ async function startPremiumUpgrade() {
       name: "PulseTasks",
       description: "Premium Plan Upgrade",
       order_id: order.orderId,
+      method: {
+        upi: true,
+        card: true,
+        netbanking: true,
+        wallet: false,
+        emi: false,
+        paylater: false
+      },
+      config: {
+        display: {
+          blocks: {
+            upi: {
+              name: "UPI / QR",
+              instruments: [{ method: "upi" }]
+            },
+            cards: {
+              name: "Cards",
+              instruments: [{ method: "card" }]
+            },
+            netbanking: {
+              name: "Netbanking",
+              instruments: [{ method: "netbanking" }]
+            }
+          },
+          sequence: ["block.upi", "block.cards", "block.netbanking"],
+          preferences: {
+            show_default_blocks: false
+          }
+        }
+      },
       prefill: {
         name: state.user.name,
         email: state.user.email
@@ -604,6 +678,7 @@ async function startPremiumUpgrade() {
           state.user.isPremium = Boolean(verification.user?.isPremium);
           saveUserContext();
           applyUserData();
+          closePremiumRequiredModal();
           notify("success", "Payment successful. Premium activated.");
         } catch (error) {
           notify("error", error.message || "Payment verification failed.");
@@ -799,6 +874,11 @@ async function upsertTaskFromForm(event) {
     renderStats();
     renderTasks();
   } catch (error) {
+    if (error.message === "Premium required to add more tasks") {
+      openPremiumRequiredModal();
+      return;
+    }
+
     notify("error", error.message);
   } finally {
     setButtonLoading(refs.taskSubmitBtn, false, "Saving...", state.editingId ? "Update Task" : "Add Task");
@@ -876,6 +956,18 @@ function bindGlobalActions() {
 
   if (refs.upgradePremiumBtn) {
     refs.upgradePremiumBtn.addEventListener("click", startPremiumUpgrade);
+  }
+
+  if (refs.modalUpgradeBtn) {
+    refs.modalUpgradeBtn.addEventListener("click", async () => {
+      await startPremiumUpgrade();
+    });
+  }
+
+  if (refs.modalCancelBtn) {
+    refs.modalCancelBtn.addEventListener("click", () => {
+      closePremiumRequiredModal();
+    });
   }
 
 }

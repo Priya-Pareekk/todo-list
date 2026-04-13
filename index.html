@@ -209,12 +209,12 @@
 
           <div class="profile-field">
             <p class="label">Plan</p>
-            <p id="profile-plan">free</p>
+            <p id="profile-plan">Current Plan: Free</p>
           </div>
 
           <div class="profile-field">
-            <p class="label">Premium Access</p>
-            <span class="tag" id="premium-access-tag">No</span>
+            <p class="label">Task Usage</p>
+            <p id="task-usage-label">Task Usage: 0 / 3</p>
           </div>
 
           <hr>
@@ -248,6 +248,14 @@
       </div>
     </article>
   </template>
+
+  <dialog id="premium-required-modal" class="panel">
+    <h3>Premium required to add more tasks</h3>
+    <div class="header-actions">
+      <button type="button" class="btn btn-primary" id="modal-upgrade-btn">Upgrade Now</button>
+      <button type="button" class="btn btn-ghost" id="modal-cancel-btn">Cancel</button>
+    </div>
+  </dialog>
 
   <script src="config.js"></script>
   <script src="https://checkout.razorpay.com/v1/checkout.js"></script>

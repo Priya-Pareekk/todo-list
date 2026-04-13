@@ -15,7 +15,7 @@ const {
 
 const PLAN_PRICING = {
   free: 0,
-  premium: 49900
+  premium: 900
 };
 
 const getPlanAmountInPaise = (plan) => {

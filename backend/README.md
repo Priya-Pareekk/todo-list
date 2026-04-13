@@ -23,6 +23,10 @@ JWT_SECRET=your_long_random_secret
 JWT_EXPIRES_IN=1d
 JWT_REFRESH_SECRET=your_long_random_refresh_secret
 JWT_REFRESH_EXPIRES_IN=7d
+GOOGLE_CLIENT_ID=your_google_client_id
+GOOGLE_CLIENT_SECRET=your_google_client_secret
+GOOGLE_CALLBACK_URL=http://localhost:5000/api/auth/google/callback
+FRONTEND_URL=http://localhost:3000/index.html
 RAZORPAY_KEY_ID=your_razorpay_test_key_id
 RAZORPAY_KEY_SECRET=your_razorpay_test_key_secret
 
@@ -90,6 +94,19 @@ Refresh body:
 - POST /api/billing/create-order
 - POST /api/billing/verify
 
+Create order body:
+{
+  "plan": "premium"
+}
+
+Verify body:
+{
+  "razorpay_order_id": "order_xxx",
+  "razorpay_payment_id": "pay_xxx",
+  "razorpay_signature": "signature_xxx",
+  "plan": "premium"
+}
+
 ## 5) Standard response format
 
 Success:
@@ -130,12 +147,14 @@ Error:
 
 - Free plan:
   - max 2 profiles
-  - max 20 tasks
+  - max 3 tasks
 - Premium plan:
   - unlimited profiles
   - unlimited tasks
 
-When free limits are reached, backend returns 403 with a clear message.
+When free task limit is reached, backend returns:
+- status: 403
+- message: `Premium required to add more tasks`
 
 ## 8) Local auth test steps
 
@@ -189,12 +208,22 @@ Notes:
 4. Restart backend server.
 5. Login in frontend.
 6. Open Profile screen and click `Upgrade to Premium`.
-7. Complete test payment using Razorpay test card/UPI details.
+7. Complete test payment using Razorpay test methods (UPI/QR, card, or netbanking).
 8. After success, backend verifies signature, marks payment captured, and upgrades subscription.
 9. Confirm with API:
   - `GET /api/auth/me` -> `subscriptionPlan: premium`, `isPremium: true`
   - `GET /api/billing/subscription` -> `plan: premium`, `isPremiumAccess: true`
 
+Premium pricing:
+- `premium` = `900` paise (`INR 9`)
+
+Checkout methods configured in frontend:
+- UPI
+- QR (UPI-based)
+- Cards
+- Netbanking
+
 Failure handling:
 - If checkout is closed, frontend shows `Payment cancelled`.
 - If signature is invalid, backend marks payment as failed and returns verification error.
+- If free user exceeds task limit, frontend opens premium-required modal with `Upgrade Now` and `Cancel`.

@@ -18,7 +18,7 @@ const createTask = asyncHandler(async (req, res) => {
     if (taskCount >= FREE_TASK_LIMIT) {
       return sendError(res, {
         statusCode: 403,
-        message: `Free plan limit reached. You can create up to ${FREE_TASK_LIMIT} tasks.`
+        message: "Premium required to add more tasks"
       });
     }
   }
