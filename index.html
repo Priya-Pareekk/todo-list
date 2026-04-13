@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PulseTasks</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Outfit:wght@500;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="app-shell">
+    <section class="screen is-active" id="login-screen" data-screen="login">
+      <div class="auth-card glass">
+        <h1 class="brand-title">PulseTasks</h1>
+        <p class="brand-subtitle">Welcome back! Please login to your account.</p>
+
+        <form id="login-form" class="stack-lg" autocomplete="on">
+          <label class="field-label" for="login-email">Email</label>
+          <input id="login-email" class="input" type="email" placeholder="you@example.com" required>
+
+          <label class="field-label" for="login-password">Password</label>
+          <input id="login-password" class="input" type="password" placeholder="••••••••" required>
+
+          <button type="submit" class="btn btn-primary btn-block">Login</button>
+        </form>
+
+        <p class="auth-footer">Don’t have an account? <button class="link-btn" data-go="signup">Sign up</button></p>
+      </div>
+    </section>
+
+    <section class="screen" id="signup-screen" data-screen="signup">
+      <div class="auth-card glass">
+        <h1 class="brand-title">PulseTasks</h1>
+        <p class="brand-subtitle">Create your account to start managing tasks.</p>
+
+        <form id="signup-form" class="stack-lg" autocomplete="on">
+          <label class="field-label" for="signup-name">Name</label>
+          <input id="signup-name" class="input" type="text" placeholder="Your full name" required>
+
+          <label class="field-label" for="signup-email">Email</label>
+          <input id="signup-email" class="input" type="email" placeholder="you@example.com" required>
+
+          <label class="field-label" for="signup-password">Password</label>
+          <input id="signup-password" class="input" type="password" placeholder="Create password" required>
+
+          <label class="field-label" for="signup-confirm-password">Confirm Password</label>
+          <input id="signup-confirm-password" class="input" type="password" placeholder="Confirm password" required>
+
+          <button type="submit" class="btn btn-primary btn-block">Create Account</button>
+        </form>
+
+        <p class="auth-footer">Already have an account? <button class="link-btn" data-go="login">Login</button></p>
+      </div>
+    </section>
+
+    <section class="screen" id="dashboard-screen" data-screen="dashboard">
+      <div class="container">
+        <header class="panel header-panel">
+          <div>
+            <h1 class="brand-title">PulseTasks</h1>
+            <p class="muted">Hello, <span id="welcome-name">Priya Pareek</span>. Keep momentum alive.</p>
+          </div>
+          <div class="header-actions">
+            <button class="btn btn-ghost" data-go="profile">Profile</button>
+            <button class="btn btn-danger" data-action="logout">Logout</button>
+          </div>
+        </header>
+
+        <section class="stats-grid" id="stats-grid">
+          <article class="panel stat-card">
+            <p class="label">Total Tasks</p>
+            <p class="stat-num" id="stat-total">0</p>
+          </article>
+          <article class="panel stat-card">
+            <p class="label">Active</p>
+            <p class="stat-num" id="stat-active">0</p>
+          </article>
+          <article class="panel stat-card">
+            <p class="label">Completed</p>
+            <p class="stat-num" id="stat-completed">0</p>
+          </article>
+          <article class="panel stat-card">
+            <p class="label">Overdue</p>
+            <p class="stat-num" id="stat-overdue">0</p>
+          </article>
+        </section>
+
+        <section class="panel add-panel">
+          <div class="panel-head">
+            <h2>Add Task</h2>
+            <button class="link-btn" id="cancel-add" hidden>Cancel</button>
+          </div>
+
+          <div id="add-launcher">
+            <button class="btn btn-primary" id="show-form" type="button" aria-expanded="false">
+              <span class="add-icon" aria-hidden="true">+</span>
+              <span>Add New Task</span>
+            </button>
+          </div>
+
+          <div id="task-form-wrap" class="task-form-wrap" hidden>
+            <form id="task-form" class="task-form">
+              <label class="field-label" for="task-title">Title</label>
+              <input id="task-title" class="input" type="text" placeholder="Finish assignment" required>
+
+              <label class="field-label" for="task-description">Description</label>
+              <textarea id="task-description" class="input textarea" placeholder="Add details for this task"></textarea>
+
+              <div class="form-grid two">
+                <div>
+                  <label class="field-label" for="task-priority">Priority</label>
+                  <select id="task-priority" class="input">
+                    <option value="high">High</option>
+                    <option value="medium" selected>Medium</option>
+                    <option value="low">Low</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="field-label" for="task-due">Due Date</label>
+                  <input id="task-due" class="input" type="date">
+                </div>
+              </div>
+
+              <div class="form-grid two">
+                <div>
+                  <label class="field-label" for="task-category">Category</label>
+                  <input id="task-category" class="input" type="text" placeholder="Work, Personal, Shopping">
+                </div>
+                <div>
+                  <label class="field-label" for="task-tags">Tags</label>
+                  <input id="task-tags" class="input" type="text" placeholder="urgent, sprint, home">
+                </div>
+              </div>
+
+              <button type="submit" class="btn btn-primary">Add Task</button>
+            </form>
+          </div>
+        </section>
+
+        <section class="panel filters-panel">
+          <h2>Filters</h2>
+          <div class="form-grid four">
+            <div>
+              <label class="field-label" for="search">Search</label>
+              <input id="search" class="input" type="text" placeholder="Search tasks...">
+            </div>
+            <div>
+              <label class="field-label" for="filter-priority">Priority</label>
+              <select id="filter-priority" class="input">
+                <option value="all">All</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </select>
+            </div>
+            <div>
+              <label class="field-label" for="filter-status">Status</label>
+              <select id="filter-status" class="input">
+                <option value="all">All</option>
+                <option value="active">Active</option>
+                <option value="completed">Completed</option>
+                <option value="overdue">Overdue</option>
+              </select>
+            </div>
+            <div>
+              <label class="field-label" for="sort-by">Sort By</label>
+              <select id="sort-by" class="input">
+                <option value="created">Date Created</option>
+                <option value="due">Due Date</option>
+                <option value="priority">Priority</option>
+              </select>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel tasks-panel">
+          <h2>Tasks</h2>
+          <div id="task-list" class="stack-md"></div>
+          <p id="empty-state" class="muted" hidden>No tasks match your filters.</p>
+        </section>
+      </div>
+    </section>
+
+    <section class="screen" id="profile-screen" data-screen="profile">
+      <div class="container profile-container">
+        <button class="link-btn back-link" data-go="dashboard">← Back to Dashboard</button>
+
+        <section class="panel profile-panel">
+          <h1>Profile</h1>
+
+          <div class="profile-field">
+            <p class="label">Name</p>
+            <p id="profile-name">Priya Pareek</p>
+          </div>
+
+          <div class="profile-field">
+            <p class="label">Email</p>
+            <p id="profile-email">priyapareek799@gmail.com</p>
+          </div>
+
+          <div class="profile-field">
+            <p class="label">Role</p>
+            <span class="tag role-tag">user</span>
+          </div>
+
+          <hr>
+
+          <button class="btn btn-danger" data-action="logout">Logout</button>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <template id="task-template">
+    <article class="task-card">
+      <div class="task-row">
+        <label class="check-wrap" aria-label="Toggle task completion">
+          <input type="checkbox" class="task-check">
+          <span></span>
+        </label>
+
+        <div class="task-content">
+          <h3 class="task-title"></h3>
+          <p class="task-desc"></p>
+          <div class="task-meta"></div>
+        </div>
+
+        <div class="task-actions">
+          <button class="icon-btn edit" aria-label="Edit task">✎</button>
+          <button class="icon-btn delete" aria-label="Delete task">🗑</button>
+        </div>
+      </div>
+    </article>
+  </template>
+
+  <script src="config.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
