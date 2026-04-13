@@ -23,6 +23,17 @@ const getPlanAmountInPaise = (plan) => {
   return PLAN_PRICING[normalizedPlan] ?? 0;
 };
 
+const getRazorpayErrorMessage = (error) => {
+  const message =
+    error?.error?.description ||
+    error?.error?.reason ||
+    error?.description ||
+    error?.message ||
+    "Razorpay request failed";
+
+  return String(message);
+};
+
 const getBillingConfig = asyncHandler(async (req, res) => {
   const { keyId } = getRazorpayCredentials();
 
@@ -74,15 +85,25 @@ const createOrder = asyncHandler(async (req, res) => {
 
   const razorpay = getRazorpayClient();
 
-  const order = await razorpay.orders.create({
-    amount,
-    currency: "INR",
-    receipt: `premium_${req.user._id}_${Date.now()}`,
-    notes: {
-      userId: String(req.user._id),
-      plan
-    }
-  });
+  let order;
+  const receipt = `rcpt_${Date.now()}`;
+
+  try {
+    order = await razorpay.orders.create({
+      amount,
+      currency: "INR",
+      receipt,
+      notes: {
+        userId: String(req.user._id),
+        plan
+      }
+    });
+  } catch (error) {
+    return sendError(res, {
+      statusCode: 400,
+      message: `Razorpay order creation failed: ${getRazorpayErrorMessage(error)} (receipt=${receipt}, len=${receipt.length})`
+    });
+  }
 
   await Payment.create({
     userId: req.user._id,
