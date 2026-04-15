@@ -47,6 +47,60 @@ Example with VS Code Live Server:
 - Right-click `index.html`
 - Click **Open with Live Server**
 
+## Deploy On Vercel
+
+This repo is configured for a single Vercel project:
+
+- static frontend from project root (`index.html`, `script.js`, `styles.css`)
+- backend API as serverless function at `/api` (via `api/index.js`)
+
+### 1) Push this repository to GitHub
+
+Vercel should deploy from the root folder (the one containing `vercel.json`).
+
+### 2) Import project in Vercel
+
+- Framework preset: **Other**
+- Root directory: **.** (repo root)
+- Build command: leave empty
+- Output directory: leave empty
+
+### 3) Add environment variables in Vercel
+
+Add all backend variables from `.env` in Vercel Project Settings -> Environment Variables:
+
+- `MONGODB_URI`
+- `JWT_SECRET`
+- `JWT_EXPIRES_IN` (example: `1d`)
+- `JWT_REFRESH_SECRET`
+- `JWT_REFRESH_EXPIRES_IN` (example: `7d`)
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+- `GOOGLE_CALLBACK_URL`
+- `FRONTEND_URL`
+- `RAZORPAY_KEY_ID`
+- `RAZORPAY_KEY_SECRET`
+
+Use production URLs:
+
+- `GOOGLE_CALLBACK_URL=https://<your-vercel-domain>/api/auth/google/callback`
+- `FRONTEND_URL=https://<your-vercel-domain>/`
+
+### 4) Update Google OAuth console
+
+In Google Cloud Console, add the same deployed callback URL to **Authorized redirect URIs**:
+
+- `https://<your-vercel-domain>/api/auth/google/callback`
+
+### 5) Redeploy
+
+After setting env vars, trigger a redeploy from Vercel.
+
+Notes:
+
+- Frontend API base URL auto-switches to same-origin `/api` in deployment.
+- Local `file://` use still targets `http://localhost:5000/api` by default.
+
 ## Environment Variables (backend/.env)
 
 Required:

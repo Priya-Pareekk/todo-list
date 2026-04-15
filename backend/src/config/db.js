@@ -1,5 +1,16 @@
 const mongoose = require("mongoose");
 
+const globalWithDbCache = global;
+if (!globalWithDbCache.__pulsetasksDbCache) {
+  globalWithDbCache.__pulsetasksDbCache = {
+    conn: null,
+    promise: null,
+    listenersBound: false
+  };
+}
+
+const dbCache = globalWithDbCache.__pulsetasksDbCache;
+
 const DB_STATE_LABELS = {
   0: "disconnected",
   1: "connected",
@@ -48,32 +59,52 @@ const getSanitizedUriForLogs = (uri) => {
 };
 
 const connectDatabase = async () => {
+  if (dbCache.conn) {
+    return dbCache.conn;
+  }
+
   const rawUri = process.env.MONGODB_URI;
   const MONGODB_URI = validateMongoUri(rawUri);
 
-  console.log("[db] Connection attempt started");
-  console.log(`[db] URI: ${getSanitizedUriForLogs(MONGODB_URI)}`);
+  if (!dbCache.listenersBound) {
+    mongoose.connection.on("connected", () => {
+      console.log("[db] Mongoose connected");
+    });
 
-  mongoose.connection.on("connected", () => {
-    console.log("[db] Mongoose connected");
-  });
+    mongoose.connection.on("disconnected", () => {
+      console.log("[db] Mongoose disconnected");
+    });
 
-  mongoose.connection.on("disconnected", () => {
-    console.log("[db] Mongoose disconnected");
-  });
+    mongoose.connection.on("error", (err) => {
+      console.error("[db] Mongoose connection error:", err.message);
+    });
 
-  mongoose.connection.on("error", (err) => {
-    console.error("[db] Mongoose connection error:", err.message);
-  });
+    dbCache.listenersBound = true;
+  }
 
-  await mongoose.connect(MONGODB_URI, {
-    serverSelectionTimeoutMS: 10000,
-    maxPoolSize: 10
-  });
+  if (!dbCache.promise) {
+    console.log("[db] Connection attempt started");
+    console.log(`[db] URI: ${getSanitizedUriForLogs(MONGODB_URI)}`);
 
-  await mongoose.connection.db.admin().ping();
-  const currentState = getDbState();
-  console.log(`[db] Ping success. State: ${currentState.label}`);
+    dbCache.promise = mongoose
+      .connect(MONGODB_URI, {
+        serverSelectionTimeoutMS: 10000,
+        maxPoolSize: 10
+      })
+      .then(async () => {
+        await mongoose.connection.db.admin().ping();
+        const currentState = getDbState();
+        console.log(`[db] Ping success. State: ${currentState.label}`);
+        return mongoose.connection;
+      })
+      .catch((error) => {
+        dbCache.promise = null;
+        throw error;
+      });
+  }
+
+  dbCache.conn = await dbCache.promise;
+  return dbCache.conn;
 };
 
 module.exports = {
