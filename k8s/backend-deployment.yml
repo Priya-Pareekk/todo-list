@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      containers:
+        - name: backend
+          image: todo-backend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5000
+          env:
+            - name: PORT
+              value: "5000"
+            - name: MONGODB_URI
+              value: "your-mongodb-uri"
+            - name: JWT_SECRET
+              value: "your-jwt-secret"
+            - name: JWT_EXPIRES_IN
+              value: "1d"
+            - name: JWT_REFRESH_SECRET
+              value: "your-jwt-refresh-secret"
+            - name: JWT_REFRESH_EXPIRES_IN
+              value: "7d"
+            - name: GOOGLE_CLIENT_ID
+              value: "your-google-client-id"
+            - name: GOOGLE_CLIENT_SECRET
+              value: "your-google-client-secret"
+            - name: GOOGLE_CALLBACK_URL
+              value: "http://localhost:5000/api/auth/google/callback"
+            - name: FRONTEND_URL
+              value: "http://localhost:8080"
+            - name: RAZORPAY_KEY_ID
+              value: "your-razorpay-key-id"
+            - name: RAZORPAY_KEY_SECRET
+              value: "your-razorpay-key-secret"
+            - name: REDIS_ENABLED
+              value: "true"
+            - name: REDIS_URL
+              value: ""
+            - name: REDIS_HOST
+              value: "host.docker.internal"
+            - name: REDIS_PORT
+              value: "6379"
+            - name: REDIS_PASSWORD
+              value: ""
+            - name: REDIS_TTL_SECONDS
+              value: "300"

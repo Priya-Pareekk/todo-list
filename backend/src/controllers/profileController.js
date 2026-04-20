@@ -8,6 +8,15 @@ const {
   isPremiumPlan,
   FREE_PROFILE_LIMIT
 } = require("../utils/planAccess");
+const { cacheDel, cacheInvalidateByPattern } = require("../config/redis");
+
+const invalidateUserTaskCaches = async (userId, profileId) => {
+  await cacheDel([
+    `tasks:${String(userId)}:all`,
+    profileId ? `tasks:${String(userId)}:profile:${String(profileId)}` : null
+  ]);
+  await cacheInvalidateByPattern(`tasks:${String(userId)}:profile:*`);
+};
 
 const createProfile = asyncHandler(async (req, res) => {
   const profileName = req.body.profileName || req.body.name;
@@ -125,6 +134,8 @@ const deleteProfile = asyncHandler(async (req, res) => {
 
   await Task.deleteMany({ userId: req.user._id, profileId: profile._id });
   await profile.deleteOne();
+
+  await invalidateUserTaskCaches(req.user._id, profile._id);
 
   return sendSuccess(res, {
     message: "Profile deleted",

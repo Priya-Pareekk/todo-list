@@ -18,6 +18,10 @@ const state = {
     email: "",
     role: "user",
     subscriptionPlan: "free",
+    subscriptionBillingCycle: "none",
+    subscriptionStatus: "active",
+    subscriptionStartDate: null,
+    subscriptionEndDate: null,
     isPremium: false,
     token: "",
     refreshToken: ""
@@ -44,9 +48,13 @@ const refs = {
   signupPassword: document.getElementById("signup-password"),
   signupConfirmPassword: document.getElementById("signup-confirm-password"),
   welcomeName: document.getElementById("welcome-name"),
+  dashboardPlanInfo: document.getElementById("dashboard-plan-info"),
   profileName: document.getElementById("profile-name"),
   profileEmail: document.getElementById("profile-email"),
   profilePlan: document.getElementById("profile-plan"),
+  profileBillingCycle: document.getElementById("profile-billing-cycle"),
+  profileSubscriptionStatus: document.getElementById("profile-subscription-status"),
+  profileExpiry: document.getElementById("profile-expiry"),
   taskUsageLabel: document.getElementById("task-usage-label"),
   upgradePremiumBtn: document.getElementById("upgrade-premium-btn"),
   premiumRequiredModal: document.getElementById("premium-required-modal"),
@@ -125,6 +133,10 @@ function saveUserContext() {
     name: state.user.name,
     role: state.user.role,
     subscriptionPlan: state.user.subscriptionPlan,
+    subscriptionBillingCycle: state.user.subscriptionBillingCycle,
+    subscriptionStatus: state.user.subscriptionStatus,
+    subscriptionStartDate: state.user.subscriptionStartDate,
+    subscriptionEndDate: state.user.subscriptionEndDate,
     isPremium: Boolean(state.user.isPremium),
     token: state.user.token,
     refreshToken: state.user.refreshToken
@@ -142,6 +154,10 @@ function saveUserContext() {
       email: state.user.email,
       role: state.user.role,
       subscriptionPlan: state.user.subscriptionPlan,
+      subscriptionBillingCycle: state.user.subscriptionBillingCycle,
+      subscriptionStatus: state.user.subscriptionStatus,
+      subscriptionStartDate: state.user.subscriptionStartDate,
+      subscriptionEndDate: state.user.subscriptionEndDate,
       isPremium: Boolean(state.user.isPremium)
     })
   );
@@ -184,6 +200,11 @@ function loadUserContext() {
       name: parsedContext?.name || parsedUser?.name || "",
       role: parsedContext?.role || parsedUser?.role || "user",
       subscriptionPlan: parsedContext?.subscriptionPlan || parsedUser?.subscriptionPlan || "free",
+      subscriptionBillingCycle:
+        parsedContext?.subscriptionBillingCycle || parsedUser?.subscriptionBillingCycle || "none",
+      subscriptionStatus: parsedContext?.subscriptionStatus || parsedUser?.subscriptionStatus || "active",
+      subscriptionStartDate: parsedContext?.subscriptionStartDate || parsedUser?.subscriptionStartDate || null,
+      subscriptionEndDate: parsedContext?.subscriptionEndDate || parsedUser?.subscriptionEndDate || null,
       isPremium: Boolean(parsedContext?.isPremium || parsedUser?.isPremium),
       token: parsedContext?.token || token,
       refreshToken: parsedContext?.refreshToken || refreshToken
@@ -235,7 +256,7 @@ async function apiRequest(path, options = {}, requireAuth = true, allowRefreshRe
     });
   } catch (error) {
     throw new Error(
-      "Cannot reach backend API. Start backend with: npm --prefix \"c:/Users/Yoga/OneDrive/Desktop/LIST/backend\" run start"
+      "Cannot reach backend API. Start backend with: npm --prefix \"c:/Users/Yoga/OneDrive/Desktop/Desktop/LIST/backend\" run dev"
     );
   }
 
@@ -261,6 +282,10 @@ async function apiRequest(path, options = {}, requireAuth = true, allowRefreshRe
       state.user.name = "Guest User";
       state.user.role = "user";
       state.user.subscriptionPlan = "free";
+      state.user.subscriptionBillingCycle = "none";
+      state.user.subscriptionStatus = "active";
+      state.user.subscriptionStartDate = null;
+      state.user.subscriptionEndDate = null;
       state.user.isPremium = false;
       state.user.token = "";
       state.user.refreshToken = "";
@@ -310,8 +335,7 @@ async function refreshAccessToken() {
       state.user.name = result.data.user.name;
       state.user.email = result.data.user.email;
       state.user.role = result.data.user.role;
-      state.user.subscriptionPlan = result.data.user.subscriptionPlan || "free";
-      state.user.isPremium = Boolean(result.data.user.isPremium);
+      updateSubscriptionState(result.data.user);
     }
     saveUserContext();
     return true;
@@ -322,13 +346,59 @@ async function refreshAccessToken() {
 
 // Applies backend user/profile values to the existing profile UI.
 function applyUserData() {
+  const planLabel = state.user.isPremium ? "Premium" : "Free";
+  const cycleLabel = state.user.isPremium
+    ? state.user.subscriptionBillingCycle === "yearly"
+      ? "Yearly"
+      : "Monthly"
+    : "none";
+
   refs.welcomeName.textContent = state.user.name || "User";
   refs.profileName.textContent = state.user.name || "User";
   refs.profileEmail.textContent = state.user.email || "-";
-  refs.profilePlan.textContent = `Current Plan: ${state.user.isPremium ? "Premium" : "Free"}`;
+  refs.profilePlan.textContent = `Current Plan: ${planLabel}`;
+  if (refs.dashboardPlanInfo) {
+    const expiryText = formatSubscriptionExpiry(state.user.subscriptionEndDate);
+    refs.dashboardPlanInfo.textContent = `Plan: ${planLabel}${
+      state.user.isPremium ? ` (${cycleLabel})` : ""
+    } | Status: ${state.user.subscriptionStatus || "active"} | Expires: ${expiryText}`;
+  }
+  if (refs.profileBillingCycle) {
+    refs.profileBillingCycle.textContent = `Billing Cycle: ${cycleLabel}`;
+  }
+  if (refs.profileSubscriptionStatus) {
+    refs.profileSubscriptionStatus.textContent = `Status: ${state.user.subscriptionStatus || "active"}`;
+  }
+  if (refs.profileExpiry) {
+    refs.profileExpiry.textContent = `Expires: ${formatSubscriptionExpiry(state.user.subscriptionEndDate)}`;
+  }
   refs.roleTag.textContent = state.activeProfile?.role || state.user.role || "user";
   refs.upgradePremiumBtn.hidden = Boolean(state.user.isPremium);
   renderTaskUsage();
+}
+
+function formatSubscriptionExpiry(endDate) {
+  if (!endDate) return "N/A";
+
+  const parsedDate = new Date(endDate);
+  if (Number.isNaN(parsedDate.getTime())) return "N/A";
+  return parsedDate.toLocaleDateString();
+}
+
+function updateSubscriptionState(userPayload) {
+  if (!userPayload) return;
+
+  const hasRawSubscriptionShape =
+    userPayload.plan || userPayload.billingCycle || userPayload.status || userPayload.isPremiumAccess;
+  const subscription = hasRawSubscriptionShape ? userPayload : userPayload.subscription || {};
+
+  state.user.subscriptionPlan = userPayload.subscriptionPlan || subscription.plan || "free";
+  state.user.subscriptionBillingCycle =
+    userPayload.subscriptionBillingCycle || subscription.billingCycle || "none";
+  state.user.subscriptionStatus = userPayload.subscriptionStatus || subscription.status || "active";
+  state.user.subscriptionStartDate = subscription.startDate || userPayload.subscriptionStartDate || null;
+  state.user.subscriptionEndDate = subscription.endDate || userPayload.subscriptionEndDate || null;
+  state.user.isPremium = Boolean(userPayload.isPremium || subscription.isPremiumAccess);
 }
 
 function renderTaskUsage() {
@@ -346,11 +416,20 @@ function closePremiumRequiredModal() {
   const modal = refs.premiumRequiredModal;
   if (!modal) return;
 
+  console.log("[billing] closing premium-required modal");
+
+  // Ensure any potential page lock state is reset before opening checkout.
+  document.body.style.removeProperty("overflow");
+  document.body.classList.remove("modal-open");
+
   if (typeof modal.close === "function" && modal.open) {
     modal.close();
-    return;
+  } else {
+    modal.hidden = true;
   }
 
+  // Hard reset in case browser keeps the native dialog open attribute.
+  modal.removeAttribute("open");
   modal.hidden = true;
 }
 
@@ -533,8 +612,7 @@ async function loginUser(email, password) {
   state.user.name = authData.user.name;
   state.user.email = authData.user.email;
   state.user.role = authData.user.role;
-  state.user.subscriptionPlan = authData.user.subscriptionPlan || "free";
-  state.user.isPremium = Boolean(authData.user.isPremium);
+  updateSubscriptionState(authData.user);
   state.user.token = authData.token;
   state.user.refreshToken = authData.refreshToken || "";
   saveUserContext();
@@ -550,6 +628,10 @@ async function tryRestoreSession(savedContext) {
   state.user.name = savedContext.name || "Guest User";
   state.user.role = savedContext.role || "user";
   state.user.subscriptionPlan = savedContext.subscriptionPlan || "free";
+  state.user.subscriptionBillingCycle = savedContext.subscriptionBillingCycle || "none";
+  state.user.subscriptionStatus = savedContext.subscriptionStatus || "active";
+  state.user.subscriptionStartDate = savedContext.subscriptionStartDate || null;
+  state.user.subscriptionEndDate = savedContext.subscriptionEndDate || null;
   state.user.isPremium = Boolean(savedContext.isPremium);
   state.user.refreshToken = savedContext.refreshToken || "";
 
@@ -559,8 +641,7 @@ async function tryRestoreSession(savedContext) {
     state.user.name = me.name;
     state.user.email = me.email;
     state.user.role = me.role;
-    state.user.subscriptionPlan = me.subscriptionPlan || "free";
-    state.user.isPremium = Boolean(me.isPremium);
+    updateSubscriptionState(me);
     saveUserContext();
     await hydrateDashboardData();
     showScreen("dashboard");
@@ -569,6 +650,10 @@ async function tryRestoreSession(savedContext) {
     clearUserContext();
     state.user.token = "";
     state.user.subscriptionPlan = "free";
+    state.user.subscriptionBillingCycle = "none";
+    state.user.subscriptionStatus = "active";
+    state.user.subscriptionStartDate = null;
+    state.user.subscriptionEndDate = null;
     state.user.isPremium = false;
     state.user.refreshToken = "";
     return false;
@@ -589,6 +674,9 @@ async function loadBillingConfig() {
 }
 
 async function startPremiumUpgrade() {
+  console.log("[billing] upgrade flow started");
+  closePremiumRequiredModal();
+
   if (!state.user.token) {
     notify("error", "Please login first.");
     return;
@@ -596,6 +684,20 @@ async function startPremiumUpgrade() {
 
   if (state.user.isPremium) {
     notify("success", "Your account is already on Premium.");
+    return;
+  }
+
+  const chosenCycleInput = window.prompt(
+    "Choose premium plan cycle: monthly or yearly",
+    "monthly"
+  );
+  if (!chosenCycleInput) {
+    return;
+  }
+
+  const selectedBillingCycle = String(chosenCycleInput).trim().toLowerCase();
+  if (!["monthly", "yearly"].includes(selectedBillingCycle)) {
+    notify("error", "Please choose either monthly or yearly.");
     return;
   }
 
@@ -608,57 +710,55 @@ async function startPremiumUpgrade() {
     setButtonLoading(refs.upgradePremiumBtn, true, "Opening...", "Upgrade to Premium");
 
     const config = await loadBillingConfig();
+    console.log("[billing] config loaded", { hasKeyId: Boolean(config.keyId) });
+
     const order = await apiRequest(
       "/billing/create-order",
       {
         method: "POST",
-        body: JSON.stringify({ plan: "premium" })
+        body: JSON.stringify({
+          plan: "premium",
+          billingCycle: selectedBillingCycle
+        })
       },
       true
     );
+
+    console.log("[billing] order created", {
+      orderId: order.orderId,
+      amount: order.amount,
+      currency: order.currency,
+      billingCycle: order.billingCycle
+    });
+
+    closePremiumRequiredModal();
 
     const razorpayInstance = new window.Razorpay({
       key: config.keyId,
       amount: order.amount,
       currency: order.currency,
       name: "PulseTasks",
-      description: "Premium Plan Upgrade",
+      description: `Premium ${selectedBillingCycle === "yearly" ? "Yearly" : "Monthly"} Upgrade`,
       order_id: order.orderId,
       method: {
         upi: true,
         card: true,
         netbanking: true,
-        wallet: false,
+        wallet: true,
         emi: false,
         paylater: false
-      },
-      config: {
-        display: {
-          blocks: {
-            upi: {
-              name: "UPI / QR",
-              instruments: [{ method: "upi" }]
-            },
-            cards: {
-              name: "Cards",
-              instruments: [{ method: "card" }]
-            },
-            netbanking: {
-              name: "Netbanking",
-              instruments: [{ method: "netbanking" }]
-            }
-          },
-          sequence: ["block.upi", "block.cards", "block.netbanking"],
-          preferences: {
-            show_default_blocks: false
-          }
-        }
       },
       prefill: {
         name: state.user.name,
         email: state.user.email
       },
       handler: async (response) => {
+        console.log("[billing] payment success callback", {
+          orderId: response?.razorpay_order_id,
+          paymentId: response?.razorpay_payment_id
+        });
+        closePremiumRequiredModal();
+
         try {
           const verification = await apiRequest(
             "/billing/verify",
@@ -668,36 +768,49 @@ async function startPremiumUpgrade() {
                 razorpay_order_id: response.razorpay_order_id,
                 razorpay_payment_id: response.razorpay_payment_id,
                 razorpay_signature: response.razorpay_signature,
-                plan: "premium"
+                plan: "premium",
+                billingCycle: selectedBillingCycle
               })
             },
             true
           );
 
-          state.user.subscriptionPlan = verification.user?.subscriptionPlan || "premium";
-          state.user.isPremium = Boolean(verification.user?.isPremium);
+          updateSubscriptionState(verification.user || verification.subscription);
           saveUserContext();
           applyUserData();
           closePremiumRequiredModal();
-          notify("success", "Payment successful. Premium activated.");
+          console.log("[billing] payment verified and premium activated");
+          notify(
+            "success",
+            `Payment successful. Premium ${selectedBillingCycle} plan activated.`
+          );
         } catch (error) {
+          closePremiumRequiredModal();
+          console.log("[billing] payment verification failed", { message: error?.message || "unknown" });
           notify("error", error.message || "Payment verification failed.");
         }
       },
       modal: {
         ondismiss: () => {
+          closePremiumRequiredModal();
+          console.log("[billing] checkout dismissed by user");
           notify("error", "Payment cancelled.");
         }
       }
     });
 
     razorpayInstance.on("payment.failed", (response) => {
+      closePremiumRequiredModal();
       const reason = response?.error?.description || response?.error?.reason || "Payment failed.";
+      console.log("[billing] payment.failed event", { reason, error: response?.error || null });
       notify("error", reason);
     });
 
+    console.log("[billing] opening Razorpay checkout");
     razorpayInstance.open();
   } catch (error) {
+    closePremiumRequiredModal();
+    console.log("[billing] upgrade flow failed before checkout", { message: error?.message || "unknown" });
     notify("error", error.message || "Unable to start payment.");
   } finally {
     setButtonLoading(refs.upgradePremiumBtn, false, "Opening...", "Upgrade to Premium");
@@ -940,6 +1053,10 @@ function bindGlobalActions() {
       state.user.name = "Guest User";
       state.user.role = "user";
       state.user.subscriptionPlan = "free";
+      state.user.subscriptionBillingCycle = "none";
+      state.user.subscriptionStatus = "active";
+      state.user.subscriptionStartDate = null;
+      state.user.subscriptionEndDate = null;
       state.user.isPremium = false;
       state.user.token = "";
       state.user.refreshToken = "";

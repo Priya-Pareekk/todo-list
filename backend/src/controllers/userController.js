@@ -11,6 +11,7 @@ const {
   verifyRefreshToken,
   getRefreshExpiresIn
 } = require("../utils/tokenService");
+const { syncUserSubscription } = require("../utils/subscriptionService");
 
 const isOAuthOnlyAccount = (user) => {
   return user.authProvider !== "local" && !user.password;
@@ -43,6 +44,34 @@ const issueAuthTokens = async (req, userId) => {
   return {
     accessToken,
     refreshToken
+  };
+};
+
+const fetchWithSingleRetry = async (url, options) => {
+  try {
+    return await fetch(url, options);
+  } catch (firstError) {
+    try {
+      return await fetch(url, options);
+    } catch (secondError) {
+      const error = new Error(secondError.message || firstError.message || "fetch failed");
+      error.statusCode = 502;
+      throw error;
+    }
+  }
+};
+
+const buildUserPayload = (user, subscription) => {
+  return {
+    userId: user._id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    subscriptionPlan: user.subscriptionPlan,
+    subscriptionBillingCycle: user.subscriptionBillingCycle,
+    subscriptionStatus: user.subscriptionStatus,
+    isPremium: user.isPremium,
+    subscription
   };
 };
 
@@ -172,6 +201,8 @@ const login = asyncHandler(async (req, res) => {
   user.lastLoginAt = new Date();
   await user.save();
 
+  const subscription = await syncUserSubscription(user);
+
   const tokens = await issueAuthTokens(req, user._id);
 
   console.log("[auth] login success", { userId: String(user._id), email: user.email });
@@ -182,14 +213,7 @@ const login = asyncHandler(async (req, res) => {
     data: {
       token: tokens.accessToken,
       refreshToken: tokens.refreshToken,
-      user: {
-        userId: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        subscriptionPlan: user.subscriptionPlan,
-        isPremium: user.isPremium
-      }
+      user: buildUserPayload(user, subscription)
     }
   });
 });
@@ -204,16 +228,13 @@ const me = asyncHandler(async (req, res) => {
     });
   }
 
+  const subscription = req.subscription || (await syncUserSubscription(user));
+
   return sendSuccess(res, {
     statusCode: 200,
     message: "Authenticated user fetched",
     data: {
-      userId: user._id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      subscriptionPlan: user.subscriptionPlan,
-      isPremium: user.isPremium,
+      ...buildUserPayload(user, subscription),
       authProvider: user.authProvider
     }
   });
@@ -267,6 +288,14 @@ const refresh = asyncHandler(async (req, res) => {
 
   const tokens = await issueAuthTokens(req, payload.sub);
   const user = await User.findById(payload.sub);
+  if (!user) {
+    return sendError(res, {
+      statusCode: 404,
+      message: "User not found"
+    });
+  }
+
+  const subscription = await syncUserSubscription(user);
 
   return sendSuccess(res, {
     statusCode: 200,
@@ -274,14 +303,7 @@ const refresh = asyncHandler(async (req, res) => {
     data: {
       token: tokens.accessToken,
       refreshToken: tokens.refreshToken,
-      user: {
-        userId: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        subscriptionPlan: user.subscriptionPlan,
-        isPremium: user.isPremium
-      }
+      user: buildUserPayload(user, subscription)
     }
   });
 });
@@ -332,7 +354,7 @@ const googleCallback = asyncHandler(async (req, res) => {
 
   const { clientId, clientSecret, callbackUrl } = getRequiredGoogleEnv();
 
-  const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+  const tokenResponse = await fetchWithSingleRetry("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded"
@@ -377,7 +399,7 @@ const googleCallback = asyncHandler(async (req, res) => {
     });
   }
 
-  const profileResponse = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
+  const profileResponse = await fetchWithSingleRetry("https://www.googleapis.com/oauth2/v2/userinfo", {
     headers: {
       Authorization: `Bearer ${googleAccessToken}`
     }
@@ -425,7 +447,7 @@ const googleCallback = asyncHandler(async (req, res) => {
 
   const tokens = await issueAuthTokens(req, user._id);
 
-  const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000/index.html";
+  const frontendUrl = process.env.FRONTEND_URL || "http://localhost:8080";
   const redirectUrl = new URL(frontendUrl);
   redirectUrl.searchParams.set("oauth", "google");
   redirectUrl.searchParams.set("token", tokens.accessToken);

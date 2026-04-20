@@ -2,6 +2,7 @@ const mongoose = require("mongoose");
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const { sendError } = require("../utils/apiResponse");
+const { syncUserSubscription } = require("../utils/subscriptionService");
 
 // Verifies JWT and injects authenticated user into req.user.
 const requireUserContext = async (req, res, next) => {
@@ -55,7 +56,10 @@ const requireUserContext = async (req, res, next) => {
     });
   }
 
+  const subscription = await syncUserSubscription(user);
+
   req.user = user;
+  req.subscription = subscription;
   next();
 };
 

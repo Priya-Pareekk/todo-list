@@ -13,6 +13,11 @@ const subscriptionSchema = new mongoose.Schema(
       enum: ["free", "premium", "pro", "team", "enterprise"],
       default: "free"
     },
+    billingCycle: {
+      type: String,
+      enum: ["none", "monthly", "yearly"],
+      default: "none"
+    },
     isPremiumAccess: {
       type: Boolean,
       default: false,

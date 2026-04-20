@@ -1,6 +1,7 @@
 require("dotenv").config();
 const app = require("./app");
 const { connectDatabase } = require("./config/db");
+const { connectRedis, disconnectRedis } = require("./config/redis");
 
 const PORT = process.env.PORT || 5000;
 
@@ -12,12 +13,30 @@ const startServer = async () => {
     });
 
     await connectDatabase();
+    await connectRedis();
 
-    const server = app.listen(PORT, () => {
+    const server = app.listen(PORT, "0.0.0.0", () => {
       console.log(`Server running on port ${PORT}`);
       console.log(`Health check: http://localhost:${PORT}/api/health`);
       console.log(`DB health check: http://localhost:${PORT}/api/db-health`);
     });
+
+    const shutdown = async (signal) => {
+      console.log(`[server] ${signal} received. Closing server...`);
+
+      server.close(async (error) => {
+        if (error) {
+          console.error("[server] Error while closing HTTP server:", error.message);
+          process.exit(1);
+        }
+
+        await disconnectRedis();
+        process.exit(0);
+      });
+    };
+
+    process.on("SIGINT", () => shutdown("SIGINT"));
+    process.on("SIGTERM", () => shutdown("SIGTERM"));
 
     server.on("error", (error) => {
       if (error.code === "EADDRINUSE") {

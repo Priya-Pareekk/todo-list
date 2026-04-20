@@ -8,6 +8,25 @@ const {
   isPremiumPlan,
   FREE_TASK_LIMIT
 } = require("../utils/planAccess");
+const {
+  cacheGet,
+  cacheSet,
+  cacheDel,
+  cacheInvalidateByPattern
+} = require("../config/redis");
+
+const TASKS_CACHE_TTL = 180;
+
+const getTasksAllKey = (userId) => `tasks:${String(userId)}:all`;
+const getTasksByProfileKey = (userId, profileId) => `tasks:${String(userId)}:profile:${String(profileId)}`;
+
+const invalidateTaskCaches = async (userId, profileId) => {
+  await cacheDel([
+    getTasksAllKey(userId),
+    profileId ? getTasksByProfileKey(userId, profileId) : null
+  ]);
+  await cacheInvalidateByPattern(`tasks:${String(userId)}:profile:*`);
+};
 
 const createTask = asyncHandler(async (req, res) => {
   const { profileId, title, description, priority, status, dueDate, category, tags } = req.body;
@@ -50,6 +69,8 @@ const createTask = asyncHandler(async (req, res) => {
     createdBy: req.user._id
   });
 
+  await invalidateTaskCaches(req.user._id, profile._id);
+
   return sendSuccess(res, {
     statusCode: 201,
     message: "Task created",
@@ -58,7 +79,23 @@ const createTask = asyncHandler(async (req, res) => {
 });
 
 const getAllTasks = asyncHandler(async (req, res) => {
+  const cacheKey = getTasksAllKey(req.user._id);
+  const cachedTasks = await cacheGet(cacheKey);
+
+  // Cache hit: return Redis data and skip MongoDB query.
+  if (cachedTasks) {
+    console.log(`[cache] HIT ${cacheKey}`);
+    return sendSuccess(res, {
+      message: "Tasks fetched",
+      data: cachedTasks
+    });
+  }
+
+  // Cache miss: fetch from MongoDB, store in Redis, and return.
+  console.log(`[cache] MISS ${cacheKey}`);
   const tasks = await Task.find({ userId: req.user._id }).sort({ createdAt: -1 });
+
+  await cacheSet(cacheKey, tasks, TASKS_CACHE_TTL);
 
   return sendSuccess(res, {
     message: "Tasks fetched",
@@ -73,6 +110,18 @@ const getTasksByProfile = asyncHandler(async (req, res) => {
     return sendError(res, { statusCode: 400, message: "Invalid profile id" });
   }
 
+  const cacheKey = getTasksByProfileKey(req.user._id, profileId);
+  const cachedTasks = await cacheGet(cacheKey);
+
+  // Cache hit: return Redis data and skip MongoDB query.
+  if (cachedTasks) {
+    console.log(`[cache] HIT ${cacheKey}`);
+    return sendSuccess(res, {
+      message: "Profile tasks fetched",
+      data: cachedTasks
+    });
+  }
+
   const ownProfile = await Profile.findOne({ _id: profileId, userId: req.user._id });
   if (!ownProfile) {
     const existsForAnotherUser = await Profile.exists({ _id: profileId });
@@ -82,14 +131,17 @@ const getTasksByProfile = asyncHandler(async (req, res) => {
     return sendError(res, { statusCode: 404, message: "Profile not found" });
   }
 
+  // Cache miss: fetch from MongoDB, store in Redis, and return.
+  console.log(`[cache] MISS ${cacheKey}`);
   const tasks = await Task.find({ userId: req.user._id, profileId }).sort({ createdAt: -1 });
+
+  await cacheSet(cacheKey, tasks, TASKS_CACHE_TTL);
 
   return sendSuccess(res, {
     message: "Profile tasks fetched",
     data: tasks
   });
 });
-
 const updateTask = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
@@ -111,6 +163,8 @@ const updateTask = asyncHandler(async (req, res) => {
 
     return sendError(res, { statusCode: 404, message: "Task not found" });
   }
+
+  await invalidateTaskCaches(req.user._id, task.profileId);
 
   return sendSuccess(res, {
     message: "Task updated",
@@ -135,6 +189,8 @@ const deleteTask = asyncHandler(async (req, res) => {
 
     return sendError(res, { statusCode: 404, message: "Task not found" });
   }
+
+  await invalidateTaskCaches(req.user._id, task.profileId);
 
   return sendSuccess(res, {
     message: "Task deleted",
@@ -164,6 +220,8 @@ const updateTaskStatus = asyncHandler(async (req, res) => {
 
     return sendError(res, { statusCode: 404, message: "Task not found" });
   }
+
+  await invalidateTaskCaches(req.user._id, task.profileId);
 
   return sendSuccess(res, {
     message: "Task status updated",

@@ -8,19 +8,56 @@ const { getRazorpayClient, getRazorpayCredentials } = require("../config/razorpa
 const {
   FREE_PLAN,
   PREMIUM_PLAN,
+  BILLING_CYCLE_NONE,
+  BILLING_CYCLE_MONTHLY,
+  BILLING_CYCLE_YEARLY,
   normalizePlan,
+  normalizeBillingCycle,
   isPremiumPlan,
   resolveUserPlan
 } = require("../utils/planAccess");
+const { syncUserSubscription } = require("../utils/subscriptionService");
 
 const PLAN_PRICING = {
-  free: 0,
-  premium: 900
+  free: {
+    none: 0
+  },
+  premium: {
+    monthly: 900,
+    yearly: 9000
+  }
 };
 
-const getPlanAmountInPaise = (plan) => {
+const getPlanAmountInPaise = (plan, billingCycle) => {
   const normalizedPlan = normalizePlan(plan);
-  return PLAN_PRICING[normalizedPlan] ?? 0;
+  const normalizedCycle = normalizeBillingCycle(billingCycle);
+  return PLAN_PRICING[normalizedPlan]?.[normalizedCycle] ?? 0;
+};
+
+const resolveEndDate = (startDate, billingCycle) => {
+  const endDate = new Date(startDate);
+  const normalizedCycle = normalizeBillingCycle(billingCycle);
+
+  if (normalizedCycle === BILLING_CYCLE_YEARLY) {
+    endDate.setFullYear(endDate.getFullYear() + 1);
+    return endDate;
+  }
+
+  endDate.setMonth(endDate.getMonth() + 1);
+  return endDate;
+};
+
+const buildSubscriptionData = (subscription) => {
+  return {
+    plan: normalizePlan(subscription?.plan || FREE_PLAN),
+    billingCycle: normalizeBillingCycle(subscription?.billingCycle || BILLING_CYCLE_NONE),
+    status: subscription?.status || "active",
+    startDate: subscription?.startDate || null,
+    endDate: subscription?.endDate || null,
+    expiresAt: subscription?.endDate || null,
+    isExpired: Boolean(subscription?.isExpired),
+    isPremiumAccess: Boolean(subscription?.isPremiumAccess)
+  };
 };
 
 const getRazorpayErrorMessage = (error) => {
@@ -44,12 +81,20 @@ const getBillingConfig = asyncHandler(async (req, res) => {
       plans: {
         free: {
           plan: FREE_PLAN,
-          amount: PLAN_PRICING.free,
+          billingCycle: BILLING_CYCLE_NONE,
+          amount: PLAN_PRICING.free.none,
           currency: "INR"
         },
-        premium: {
+        premiumMonthly: {
           plan: PREMIUM_PLAN,
-          amount: PLAN_PRICING.premium,
+          billingCycle: BILLING_CYCLE_MONTHLY,
+          amount: PLAN_PRICING.premium.monthly,
+          currency: "INR"
+        },
+        premiumYearly: {
+          plan: PREMIUM_PLAN,
+          billingCycle: BILLING_CYCLE_YEARLY,
+          amount: PLAN_PRICING.premium.yearly,
           currency: "INR"
         }
       }
@@ -59,9 +104,13 @@ const getBillingConfig = asyncHandler(async (req, res) => {
 
 const createOrder = asyncHandler(async (req, res) => {
   const requestedPlan = req.body.plan || PREMIUM_PLAN;
+  const requestedCycle = req.body.billingCycle || req.body.cycle || BILLING_CYCLE_MONTHLY;
   const plan = normalizePlan(requestedPlan);
+  const billingCycle = normalizeBillingCycle(requestedCycle);
 
-  if (isPremiumPlan(resolveUserPlan(req.user))) {
+  const currentPlan = req.subscription?.plan || resolveUserPlan(req.user);
+  const hasActivePremium = req.subscription?.isPremiumAccess ?? isPremiumPlan(currentPlan);
+  if (hasActivePremium) {
     return sendError(res, {
       statusCode: 400,
       message: "Your account is already on premium plan"
@@ -75,7 +124,14 @@ const createOrder = asyncHandler(async (req, res) => {
     });
   }
 
-  const amount = getPlanAmountInPaise(plan);
+  if (![BILLING_CYCLE_MONTHLY, BILLING_CYCLE_YEARLY].includes(billingCycle)) {
+    return sendError(res, {
+      statusCode: 400,
+      message: "billingCycle must be either monthly or yearly"
+    });
+  }
+
+  const amount = getPlanAmountInPaise(plan, billingCycle);
   if (!amount || amount <= 0) {
     return sendError(res, {
       statusCode: 400,
@@ -95,7 +151,8 @@ const createOrder = asyncHandler(async (req, res) => {
       receipt,
       notes: {
         userId: String(req.user._id),
-        plan
+        plan,
+        billingCycle
       }
     });
   } catch (error) {
@@ -112,6 +169,7 @@ const createOrder = asyncHandler(async (req, res) => {
     currency: order.currency,
     paymentStatus: "created",
     plan,
+    billingCycle,
     notes: order.notes || {}
   });
 
@@ -122,7 +180,8 @@ const createOrder = asyncHandler(async (req, res) => {
       orderId: order.id,
       amount: order.amount,
       currency: order.currency,
-      plan
+      plan,
+      billingCycle
     }
   });
 });
@@ -132,7 +191,8 @@ const verifyPayment = asyncHandler(async (req, res) => {
     razorpay_order_id: razorpayOrderId,
     razorpay_payment_id: razorpayPaymentId,
     razorpay_signature: razorpaySignature,
-    plan: requestedPlan
+    plan: requestedPlan,
+    billingCycle: requestedCycle
   } = req.body;
 
   if (!razorpayOrderId || !razorpayPaymentId || !razorpaySignature) {
@@ -155,19 +215,25 @@ const verifyPayment = asyncHandler(async (req, res) => {
   }
 
   if (payment.paymentStatus === "captured") {
+    const latestSubscription = await syncUserSubscription(req.user);
+
     return sendSuccess(res, {
       message: "Payment already verified",
       data: {
         paymentId: payment._id,
         paymentStatus: payment.paymentStatus,
         plan: normalizePlan(payment.plan),
-        isPremium: true,
+        billingCycle: normalizeBillingCycle(payment.billingCycle),
+        isPremium: Boolean(latestSubscription.isPremiumAccess),
+        subscription: buildSubscriptionData(latestSubscription),
         user: {
           userId: req.user._id,
           name: req.user.name,
           email: req.user.email,
           role: req.user.role,
           subscriptionPlan: req.user.subscriptionPlan,
+          subscriptionBillingCycle: req.user.subscriptionBillingCycle,
+          subscriptionStatus: req.user.subscriptionStatus,
           isPremium: req.user.isPremium
         }
       }
@@ -194,24 +260,28 @@ const verifyPayment = asyncHandler(async (req, res) => {
   }
 
   const plan = normalizePlan(requestedPlan || payment.plan || PREMIUM_PLAN);
+  const billingCycle = normalizeBillingCycle(
+    requestedCycle || payment.billingCycle || payment.notes?.billingCycle || BILLING_CYCLE_MONTHLY
+  );
   const premiumAccess = isPremiumPlan(plan);
 
   payment.razorpayPaymentId = razorpayPaymentId;
   payment.razorpaySignature = razorpaySignature;
   payment.plan = plan;
+  payment.billingCycle = billingCycle;
   payment.paymentStatus = "captured";
   payment.failureReason = "";
   await payment.save();
 
   const now = new Date();
-  const endDate = new Date(now);
-  endDate.setFullYear(endDate.getFullYear() + 1);
+  const endDate = resolveEndDate(now, billingCycle);
 
   await Subscription.findOneAndUpdate(
     { userId: req.user._id },
     {
       $set: {
         plan,
+        billingCycle,
         status: "active",
         startDate: now,
         endDate,
@@ -226,11 +296,15 @@ const verifyPayment = asyncHandler(async (req, res) => {
     {
       $set: {
         subscriptionPlan: plan,
+        subscriptionBillingCycle: billingCycle,
+        subscriptionStatus: "active",
         isPremium: premiumAccess
       }
     },
     { new: true }
   );
+
+  const syncedSubscription = await syncUserSubscription(updatedUser);
 
   return sendSuccess(res, {
     message: "Payment verified and subscription upgraded",
@@ -238,13 +312,17 @@ const verifyPayment = asyncHandler(async (req, res) => {
       paymentId: payment._id,
       paymentStatus: payment.paymentStatus,
       plan,
+      billingCycle,
       isPremium: premiumAccess,
+      subscription: buildSubscriptionData(syncedSubscription),
       user: {
         userId: updatedUser._id,
         name: updatedUser.name,
         email: updatedUser.email,
         role: updatedUser.role,
         subscriptionPlan: updatedUser.subscriptionPlan,
+        subscriptionBillingCycle: updatedUser.subscriptionBillingCycle,
+        subscriptionStatus: updatedUser.subscriptionStatus,
         isPremium: updatedUser.isPremium
       }
     }
@@ -252,19 +330,11 @@ const verifyPayment = asyncHandler(async (req, res) => {
 });
 
 const getMySubscription = asyncHandler(async (req, res) => {
-  const subscription = await Subscription.findOne({ userId: req.user._id }).sort({ updatedAt: -1 });
-  const currentPlan = subscription?.plan || resolveUserPlan(req.user);
-  const premiumAccess = subscription?.isPremiumAccess ?? isPremiumPlan(currentPlan);
+  const subscription = req.subscription || (await syncUserSubscription(req.user));
 
   return sendSuccess(res, {
     message: "Subscription fetched",
-    data: {
-      plan: normalizePlan(currentPlan),
-      isPremiumAccess: premiumAccess,
-      status: subscription?.status || "active",
-      startDate: subscription?.startDate || null,
-      endDate: subscription?.endDate || null
-    }
+    data: buildSubscriptionData(subscription)
   });
 });
 

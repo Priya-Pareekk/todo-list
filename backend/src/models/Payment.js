@@ -46,6 +46,11 @@ const paymentSchema = new mongoose.Schema(
       enum: ["free", "premium", "pro", "team", "enterprise"],
       required: true
     },
+    billingCycle: {
+      type: String,
+      enum: ["none", "monthly", "yearly"],
+      default: "none"
+    },
     notes: {
       type: mongoose.Schema.Types.Mixed,
       default: {}
